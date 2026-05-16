@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { randomUUID } from "crypto";
 import { mkdir } from "fs/promises";
+import { startDashboard } from "./dashboard";
 import { listWorkflows, loadWorkflow, getProjectWorkflowDir } from "./loader";
 import { createRuntime } from "./runtime";
 import { listRuns, loadRun, saveRun } from "./store";
@@ -237,6 +238,20 @@ export default function piWorkflows(pi: ExtensionAPI) {
           details: {},
         };
       }
+    },
+  });
+
+  let dashboardInstance: { url: string; stop: () => void } | null = null;
+
+  pi.registerCommand("dashboard", {
+    description: "Open the workflow runs dashboard",
+    handler: async (_args, ctx) => {
+      if (dashboardInstance) {
+        ctx.ui.notify(`Dashboard already running at ${dashboardInstance.url}`, "info");
+        return;
+      }
+      dashboardInstance = await startDashboard(ctx.cwd);
+      ctx.ui.notify(`Dashboard started at ${dashboardInstance.url}`, "info");
     },
   });
 

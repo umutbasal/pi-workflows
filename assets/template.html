@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pi-workflows</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --line: #30363d;
+      --good: #3fb950;
+      --bad: #f85149;
+      --accent: #58a6ff;
+      --warn: #d29922;
+      --running: #a371f7;
+      --node-size: 32px;
+      --connector-color: #30363d;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding: 24px;
+    }
+    .page { max-width: 1200px; margin: 0 auto; }
+    .header { margin-bottom: 24px; display: flex; align-items: center; gap: 12px; }
+    .title { font-size: 22px; color: #fff; font-weight: 700; }
+    .meta { color: var(--muted); font-size: 13px; margin-left: auto; }
+
+    .runs-grid {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 16px;
+      min-height: calc(100vh - 100px);
+    }
+
+    .sidebar {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow-y: auto;
+      max-height: calc(100vh - 100px);
+    }
+    .sidebar-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      background: var(--panel);
+    }
+    .run-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .run-item:last-child { border-bottom: none; }
+    .run-item:hover { background: #1c2128; }
+    .run-item.active { background: #1c2128; border-left: 3px solid var(--accent); }
+    .run-item-name { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+    .run-item-meta { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+
+    .main-panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 24px;
+      overflow-y: auto;
+      max-height: calc(100vh - 100px);
+    }
+
+    .empty-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--muted);
+      font-size: 14px;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .empty-state-icon { font-size: 32px; opacity: 0.5; }
+
+    .run-detail-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .run-detail-title { font-size: 18px; font-weight: 700; color: #fff; }
+    .run-detail-id {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .run-detail-time {
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge.running { color: var(--running); background: rgba(163,113,247,0.15); }
+    .badge.completed { color: var(--good); background: rgba(63,185,80,0.15); }
+    .badge.failed { color: var(--bad); background: rgba(248,81,73,0.15); }
+    .badge.cancelled { color: var(--warn); background: rgba(210,153,34,0.15); }
+    .badge.pending { color: var(--muted); background: rgba(139,148,158,0.15); }
+
+    /* Tree visualization */
+    .workflow-tree {
+      position: relative;
+      padding-left: 20px;
+    }
+
+    .phase-group {
+      margin-bottom: 8px;
+    }
+    .phase-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 8px;
+      padding-left: 44px;
+    }
+
+    .tree-node {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      position: relative;
+      padding: 6px 0;
+    }
+
+    .node-connector {
+      position: relative;
+      width: var(--node-size);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .node-dot {
+      width: var(--node-size);
+      height: var(--node-size);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      position: relative;
+      z-index: 2;
+      border: 2px solid;
+    }
+    .node-dot.running {
+      border-color: var(--running);
+      background: rgba(163,113,247,0.15);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    .node-dot.completed {
+      border-color: var(--good);
+      background: rgba(63,185,80,0.15);
+    }
+    .node-dot.failed {
+      border-color: var(--bad);
+      background: rgba(248,81,73,0.15);
+    }
+    .node-dot.pending {
+      border-color: var(--line);
+      background: rgba(139,148,158,0.08);
+    }
+    .node-dot.cancelled {
+      border-color: var(--warn);
+      background: rgba(210,153,34,0.1);
+    }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(163,113,247,0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(163,113,247,0); }
+    }
+
+    .tree-line {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 2px;
+      background: var(--connector-color);
+      z-index: 1;
+    }
+    .tree-line.top {
+      top: 0;
+      height: calc(50% - var(--node-size) / 2 + 6px);
+    }
+    .tree-line.bottom {
+      bottom: 0;
+      height: calc(50% - var(--node-size) / 2 + 6px);
+    }
+    .tree-line.active { background: var(--good); }
+    .tree-line.running-line { background: var(--running); }
+
+    .node-content {
+      flex: 1;
+      padding-top: 4px;
+      min-width: 0;
+    }
+    .node-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .node-meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+      display: flex;
+      gap: 12px;
+    }
+    .node-duration {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .node-error {
+      font-size: 11px;
+      color: var(--bad);
+      margin-top: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .run-result {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+    .run-result-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .run-result-content {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    @media (max-width: 768px) {
+      .runs-grid {
+        grid-template-columns: 1fr;
+      }
+      .sidebar { max-height: 200px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <h1 class="title">pi-workflows</h1>
+      <span class="meta" id="meta">connecting...</span>
+    </div>
+    <div class="runs-grid">
+      <div class="sidebar">
+        <div class="sidebar-header">Runs</div>
+        <div id="run-list"></div>
+      </div>
+      <div class="main-panel" id="main-panel">
+        <div class="empty-state">
+          <div class="empty-state-icon">&#9671;</div>
+          <div>Select a run to view its workflow tree</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let runs = [];
+    let selectedRunId = null;
+
+    init();
+
+    function init() {
+      fetchRuns();
+      startSSE();
+    }
+
+    function startSSE() {
+      const es = new EventSource('/events');
+      es.addEventListener('runs-updated', () => fetchRuns());
+      es.addEventListener('connected', () => setMeta('live'));
+      es.onerror = () => {
+        setMeta('reconnecting...');
+        es.close();
+        setTimeout(startSSE, 2000);
+      };
+    }
+
+    function fetchRuns() {
+      fetch('/api/runs', { cache: 'no-store' })
+        .then(r => r.json())
+        .then(data => {
+          runs = data;
+          if (!selectedRunId && runs.length > 0) selectedRunId = runs[0].runId;
+          render();
+          setMeta('live');
+        })
+        .catch(() => setMeta('error'));
+    }
+
+    function render() {
+      renderSidebar();
+      renderMainPanel();
+    }
+
+    function renderSidebar() {
+      const list = document.getElementById('run-list');
+      if (runs.length === 0) {
+        list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No runs yet</div>';
+        return;
+      }
+      list.innerHTML = runs.map(run => {
+        const active = run.runId === selectedRunId;
+        const time = relativeTime(run.updatedAt);
+        const stepCount = run.steps.length;
+        const completedSteps = run.steps.filter(s => s.status === 'completed').length;
+        return '<div class="run-item' + (active ? ' active' : '') + '" data-id="' + esc(run.runId) + '">'
+          + '<div class="run-item-name">' + esc(run.workflow) + '</div>'
+          + '<div class="run-item-meta">'
+          + '<span class="badge ' + run.status + '">' + esc(run.status) + '</span>'
+          + '<span>' + completedSteps + '/' + stepCount + ' steps</span>'
+          + '<span>' + esc(time) + '</span>'
+          + '</div></div>';
+      }).join('');
+
+      list.querySelectorAll('.run-item').forEach(item => {
+        item.addEventListener('click', () => {
+          selectedRunId = item.dataset.id;
+          render();
+        });
+      });
+    }
+
+    function renderMainPanel() {
+      const panel = document.getElementById('main-panel');
+      const run = runs.find(r => r.runId === selectedRunId);
+      if (!run) {
+        panel.innerHTML = '<div class="empty-state"><div class="empty-state-icon">&#9671;</div><div>Select a run to view its workflow tree</div></div>';
+        return;
+      }
+
+      let html = '';
+      html += renderRunHeader(run);
+      html += renderWorkflowTree(run);
+      if (run.result) html += renderResult(run.result);
+      panel.innerHTML = html;
+    }
+
+    function renderRunHeader(run) {
+      const duration = totalDuration(run);
+      return '<div class="run-detail-header">'
+        + '<span class="badge ' + run.status + '">' + esc(run.status) + '</span>'
+        + '<span class="run-detail-title">' + esc(run.workflow) + '</span>'
+        + '<span class="run-detail-id">' + esc(run.runId.slice(0, 8)) + '</span>'
+        + (duration ? '<span class="run-detail-time">' + duration + '</span>' : '')
+        + '</div>';
+    }
+
+    function renderWorkflowTree(run) {
+      if (run.steps.length === 0) {
+        return '<div class="empty-state" style="padding:40px 0"><div>No steps recorded yet</div></div>';
+      }
+
+      const phases = groupByPhase(run.steps);
+      let html = '<div class="workflow-tree">';
+
+      let globalIdx = 0;
+      const totalSteps = run.steps.length;
+
+      for (const phase of phases) {
+        if (phase.name) {
+          html += '<div class="phase-group"><div class="phase-label">' + esc(phase.name) + '</div>';
+        } else {
+          html += '<div class="phase-group">';
+        }
+
+        for (let i = 0; i < phase.steps.length; i++) {
+          const step = phase.steps[i];
+          const isFirst = globalIdx === 0;
+          const isLast = globalIdx === totalSteps - 1;
+          html += renderTreeNode(step, isFirst, isLast, globalIdx);
+          globalIdx++;
+        }
+
+        html += '</div>';
+      }
+
+      html += '</div>';
+      return html;
+    }
+
+    function renderTreeNode(step, isFirst, isLast, index) {
+      const icon = nodeIcon(step.status);
+      const dur = step.startedAt && step.completedAt
+        ? ((step.completedAt - step.startedAt) / 1000).toFixed(1) + 's'
+        : step.status === 'running' ? 'running...' : '';
+
+      const topLineClass = !isFirst ? (' ' + lineClass(step.status)) : '';
+      const bottomLineClass = !isLast ? (' ' + lineClassForNext(step.status)) : '';
+
+      let html = '<div class="tree-node">';
+      html += '<div class="node-connector">';
+      if (!isFirst) html += '<div class="tree-line top' + topLineClass + '"></div>';
+      if (!isLast) html += '<div class="tree-line bottom' + bottomLineClass + '"></div>';
+      html += '<div class="node-dot ' + step.status + '">' + icon + '</div>';
+      html += '</div>';
+      html += '<div class="node-content">';
+      html += '<div class="node-name">' + esc(step.name) + '</div>';
+      html += '<div class="node-meta">';
+      if (dur) html += '<span class="node-duration">' + dur + '</span>';
+      html += '</div>';
+      if (step.error) html += '<div class="node-error">' + esc(step.error) + '</div>';
+      html += '</div>';
+      html += '</div>';
+      return html;
+    }
+
+    function nodeIcon(status) {
+      switch (status) {
+        case 'completed': return '&#10003;';
+        case 'failed': return '&#10007;';
+        case 'running': return '&#9679;';
+        case 'cancelled': return '&#8211;';
+        default: return '&#9675;';
+      }
+    }
+
+    function lineClass(status) {
+      if (status === 'completed') return 'active';
+      if (status === 'running') return 'running-line';
+      return '';
+    }
+
+    function lineClassForNext(status) {
+      if (status === 'completed') return 'active';
+      if (status === 'running') return 'running-line';
+      return '';
+    }
+
+    function groupByPhase(steps) {
+      const groups = [];
+      let current = null;
+      for (const step of steps) {
+        const phaseName = step.phase || '';
+        if (!current || current.name !== phaseName) {
+          current = { name: phaseName, steps: [] };
+          groups.push(current);
+        }
+        current.steps.push(step);
+      }
+      return groups;
+    }
+
+    function renderResult(result) {
+      const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+      return '<div class="run-result">'
+        + '<div class="run-result-label">Result</div>'
+        + '<div class="run-result-content">' + esc(text) + '</div>'
+        + '</div>';
+    }
+
+    function totalDuration(run) {
+      const starts = run.steps.filter(s => s.startedAt).map(s => s.startedAt);
+      const ends = run.steps.filter(s => s.completedAt).map(s => s.completedAt);
+      if (starts.length === 0) return '';
+      const first = Math.min(...starts);
+      const last = ends.length > 0 ? Math.max(...ends) : Date.now();
+      const secs = (last - first) / 1000;
+      if (secs < 60) return secs.toFixed(0) + 's';
+      return (secs / 60).toFixed(1) + 'm';
+    }
+
+    function relativeTime(ts) {
+      const diff = Date.now() - ts;
+      if (diff < 60000) return 'just now';
+      if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+      if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+      return new Date(ts).toLocaleDateString();
+    }
+
+    function setMeta(text) {
+      document.getElementById('meta').textContent = text;
+    }
+
+    function esc(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+  </script>
+</body>
+</html>
