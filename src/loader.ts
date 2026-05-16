@@ -90,8 +90,9 @@ export async function listWorkflows(
 export async function loadWorkflow(
   cwd: string,
   name: string,
-): Promise<WorkflowModule | null> {
+): Promise<(WorkflowModule & { source?: string }) | null> {
   const dirs = await getAllWorkflowDirs(cwd);
+  const { readFile } = await import("fs/promises");
 
   for (const dir of dirs) {
     for (const ext of EXTENSIONS) {
@@ -99,7 +100,10 @@ export async function loadWorkflow(
       try {
         const mod = await import(path);
         if (!mod.meta?.name) return null;
-        return mod as WorkflowModule;
+        // Read source for AI param extraction
+        let source: string | undefined;
+        try { source = await readFile(path, "utf-8"); } catch {}
+        return { ...mod, source } as WorkflowModule & { source?: string };
       } catch {
         continue;
       }

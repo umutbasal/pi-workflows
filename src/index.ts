@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { randomUUID } from "crypto";
 import { mkdir } from "fs/promises";
@@ -61,6 +61,84 @@ export default function piWorkflows(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const { mkdir } = await import("fs/promises");
     await mkdir(getProjectWorkflowDir(ctx.cwd), { recursive: true }).catch(() => {});
+  });
+
+  // Intercept CLI input: "pi workflow <name> [free-text args]"
+  // Positional args arrive as separate prompt() calls. We accumulate and execute directly.
+  let pendingWorkflowParts: string[] = [];
+  let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingCtx: ExtensionContext | null = null;
+
+  const flushPendingWorkflow = async () => {
+    if (pendingFlushTimer) { clearTimeout(pendingFlushTimer); pendingFlushTimer = null; }
+    if (pendingWorkflowParts.length < 2 || !pendingCtx) {
+      // Not enough parts — re-send as normal message
+      if (pendingWorkflowParts.length > 0 && pendingCtx) {
+        pi.sendUserMessage(pendingWorkflowParts.join(" "));
+      }
+      pendingWorkflowParts = [];
+      pendingCtx = null;
+      return;
+    }
+    const name = pendingWorkflowParts[1];
+    const rawArgs = pendingWorkflowParts.length > 2 ? pendingWorkflowParts.slice(2).join(" ") : undefined;
+    const ctx = pendingCtx;
+    pendingWorkflowParts = [];
+    pendingCtx = null;
+    const result = await executeWorkflow(name, rawArgs, ctx);
+    pi.sendUserMessage(result, { deliverAs: "steer" });
+  };
+
+  pi.on("input", async (event, ctx) => {
+    const text = event.text.trim();
+
+    // Single message: "workflow http-discovery my-targets.txt 80,443"
+    const workflowMatch = text.match(/^workflow\s+(\S+)(?:\s+(.+))?$/s);
+    if (workflowMatch) {
+      const [, name, rawArgs] = workflowMatch;
+      const workflows = await listWorkflows(ctx.cwd);
+      if (workflows.find((w) => w.name === name)) {
+        pendingWorkflowParts = [];
+        if (pendingFlushTimer) { clearTimeout(pendingFlushTimer); pendingFlushTimer = null; }
+        const result = await executeWorkflow(name, rawArgs, ctx);
+        pi.sendUserMessage(result, { deliverAs: "steer" });
+        return { action: "handled" as const };
+      }
+    }
+
+    // Multi-message accumulation: first "workflow", then "http-discovery", then args
+    if (text === "workflow" && pendingWorkflowParts.length === 0) {
+      pendingWorkflowParts = ["workflow"];
+      pendingCtx = ctx;
+      pendingFlushTimer = setTimeout(flushPendingWorkflow, 150);
+      return { action: "handled" as const };
+    }
+
+    if (pendingWorkflowParts.length > 0 && pendingWorkflowParts[0] === "workflow") {
+      if (pendingFlushTimer) { clearTimeout(pendingFlushTimer); pendingFlushTimer = null; }
+      pendingWorkflowParts.push(text);
+      pendingCtx = ctx;
+
+      if (pendingWorkflowParts.length === 2) {
+        const name = pendingWorkflowParts[1];
+        const workflows = await listWorkflows(ctx.cwd);
+        if (!workflows.find((w) => w.name === name)) {
+          const combined = pendingWorkflowParts.join(" ");
+          pendingWorkflowParts = [];
+          pendingCtx = null;
+          return { action: "transform" as const, text: combined };
+        }
+        // Wait for potential args
+        pendingFlushTimer = setTimeout(flushPendingWorkflow, 150);
+        return { action: "handled" as const };
+      }
+
+      // 3+ parts — flush immediately
+      await flushPendingWorkflow();
+      return { action: "handled" as const };
+    }
+
+    return { action: "continue" as const };
   });
 
   pi.registerTool({
@@ -144,99 +222,8 @@ export default function piWorkflows(pi: ExtensionAPI) {
       }
 
       // action === "start"
-      const mod = await loadWorkflow(cwd, params.workflow);
-      if (!mod) {
-        const available = await listWorkflows(cwd);
-        const projectDir = getProjectWorkflowDir(cwd);
-        await mkdir(projectDir, { recursive: true });
-        const hint =
-          available.length > 0
-            ? `\nAvailable: ${available.map((w) => w.name).join(", ")}`
-            : `\nNo workflows found. Create a .js file in ${projectDir}`;
-        return {
-          content: [{
-            type: "text",
-            text: `Workflow "${params.workflow}" not found.${hint}\n\nTo create it, write a file at: ${projectDir}/${params.workflow}.js\n\nTemplate:\n${WORKFLOW_SCRIPT_TEMPLATE}`,
-          }],
-          details: {},
-        };
-      }
-
-      let parsedArgs: Record<string, unknown> | undefined;
-      if (params.args) {
-        try {
-          parsedArgs = JSON.parse(params.args);
-        } catch {
-          return { content: [{ type: "text", text: "Error: args must be valid JSON" }], details: {} };
-        }
-      }
-
-      const run: WorkflowRun = {
-        runId: randomUUID(),
-        workflow: params.workflow,
-        status: "running",
-        args: parsedArgs,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        steps: [],
-      };
-
-      await saveRun(cwd, run);
-      ctx.ui.notify(`Starting workflow: ${mod.meta.name}`, "info");
-
-      if (!mod.default) {
-        run.status = "completed";
-        run.updatedAt = Date.now();
-        await saveRun(cwd, run);
-        return {
-          content: [{ type: "text", text: `Workflow ${mod.meta.name} has no default export to execute.` }],
-          details: {},
-        };
-      }
-
-      const steps: WorkflowStep[] = [];
-      const runtime = createRuntime(ctx, (step) => {
-        const existing = steps.find(
-          (s) => s.name === step.name && s.startedAt === step.startedAt,
-        );
-        if (existing) {
-          Object.assign(existing, step);
-        } else {
-          steps.push({ ...step });
-        }
-        run.steps = steps;
-        run.updatedAt = Date.now();
-        saveRun(cwd, run).catch(() => {});
-      });
-      runtime.args = parsedArgs;
-
-      try {
-        const result = await mod.default(runtime);
-        run.status = "completed";
-        run.result = result;
-        run.updatedAt = Date.now();
-        await saveRun(cwd, run);
-
-        const summary = typeof result === "string" ? result : JSON.stringify(result, null, 2);
-        return {
-          content: [{
-            type: "text",
-            text: `Workflow "${mod.meta.name}" completed.\nRun ID: ${run.runId}\n\nResult:\n${summary}`,
-          }],
-          details: {},
-        };
-      } catch (err) {
-        run.status = "failed";
-        run.updatedAt = Date.now();
-        await saveRun(cwd, run);
-        return {
-          content: [{
-            type: "text",
-            text: `Workflow "${mod.meta.name}" failed: ${err instanceof Error ? err.message : err}`,
-          }],
-          details: {},
-        };
-      }
+      const resultText = await executeWorkflow(params.workflow, params.args, ctx);
+      return { content: [{ type: "text", text: resultText }], details: {} };
     },
   });
 
@@ -253,21 +240,161 @@ export default function piWorkflows(pi: ExtensionAPI) {
         const selected = await ctx.ui.select("Select a workflow", names);
         if (!selected) return;
         const workflowName = selected.split(" [")[0];
-        pi.sendUserMessage(
-          `Use the workflow tool to start the "${workflowName}" workflow.`,
-        );
+        const result = await executeWorkflow(workflowName, undefined, ctx);
+        pi.sendUserMessage(result, { deliverAs: "steer" });
         return;
       }
 
-      const parts = args.split(/\s+/);
-      const workflowName = parts[0];
-      const workflowArgs = parts.slice(1).join(" ");
+      // Split: first word is workflow name, rest is free-text args
+      const spaceIdx = args.indexOf(" ");
+      const workflowName = spaceIdx === -1 ? args : args.slice(0, spaceIdx);
+      const rawArgs = spaceIdx === -1 ? undefined : args.slice(spaceIdx + 1).trim() || undefined;
 
-      pi.sendUserMessage(
-        `Use the workflow tool to start the "${workflowName}" workflow${workflowArgs ? ` with args: ${workflowArgs}` : ""}.`,
-      );
+      const result = await executeWorkflow(workflowName, rawArgs, ctx);
+      pi.sendUserMessage(result, { deliverAs: "steer" });
     },
   });
+}
+
+/**
+ * Execute a workflow. If rawArgs is provided:
+ *  - If valid JSON → use directly as args
+ *  - Otherwise → use an AI agent step to interpret free-text into workflow params
+ */
+async function executeWorkflow(
+  workflowName: string,
+  rawArgs: string | undefined,
+  ctx: ExtensionContext,
+): Promise<string> {
+  const cwd = ctx.cwd;
+  const mod = await loadWorkflow(cwd, workflowName);
+
+  if (!mod) {
+    const available = await listWorkflows(cwd);
+    const projectDir = getProjectWorkflowDir(cwd);
+    await mkdir(projectDir, { recursive: true });
+    const hint =
+      available.length > 0
+        ? `\nAvailable: ${available.map((w) => w.name).join(", ")}`
+        : `\nNo workflows found. Create a .js file in ${projectDir}`;
+    return `Workflow "${workflowName}" not found.${hint}`;
+  }
+
+  // Resolve args: JSON passthrough or AI-interpreted free text
+  let parsedArgs: Record<string, unknown> | undefined;
+  if (rawArgs) {
+    // Try JSON first
+    try {
+      parsedArgs = JSON.parse(rawArgs);
+    } catch {
+      // Not JSON — use AI to interpret the free text into params
+      parsedArgs = await interpretArgsWithAI(rawArgs, mod, ctx);
+    }
+  }
+
+  const run: WorkflowRun = {
+    runId: randomUUID(),
+    workflow: workflowName,
+    status: "running",
+    args: parsedArgs,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    steps: [],
+  };
+
+  await saveRun(cwd, run);
+  ctx.ui.notify(`Starting workflow: ${mod.meta.name}${parsedArgs ? ` with args: ${JSON.stringify(parsedArgs)}` : ""}`, "info");
+
+  if (!mod.default) {
+    run.status = "completed";
+    run.updatedAt = Date.now();
+    await saveRun(cwd, run);
+    return `Workflow ${mod.meta.name} has no default export to execute.`;
+  }
+
+  const steps: WorkflowStep[] = [];
+  const runtime = createRuntime(ctx, (step) => {
+    const existing = steps.find(
+      (s) => s.name === step.name && s.startedAt === step.startedAt,
+    );
+    if (existing) {
+      Object.assign(existing, step);
+    } else {
+      steps.push({ ...step });
+    }
+    run.steps = steps;
+    run.updatedAt = Date.now();
+    saveRun(cwd, run).catch(() => {});
+  });
+  runtime.args = parsedArgs;
+
+  try {
+    const result = await mod.default(runtime);
+    run.status = "completed";
+    run.result = result;
+    run.updatedAt = Date.now();
+    await saveRun(cwd, run);
+
+    const summary = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+    return `Workflow "${mod.meta.name}" completed.\nRun ID: ${run.runId}\n\nResult:\n${summary}`;
+  } catch (err) {
+    run.status = "failed";
+    run.updatedAt = Date.now();
+    await saveRun(cwd, run);
+    return `Workflow "${mod.meta.name}" failed: ${err instanceof Error ? err.message : err}`;
+  }
+}
+
+/**
+ * Use an AI agent to interpret free-text args into structured params
+ * based on the workflow's source code / meta.
+ */
+async function interpretArgsWithAI(
+  rawText: string,
+  mod: { meta: { name: string; description?: string }; source?: string },
+  ctx: ExtensionContext,
+): Promise<Record<string, unknown>> {
+  const { createAgentSession, defineTool } = await import("@earendil-works/pi-coding-agent");
+
+  let captured: Record<string, unknown> = {};
+
+  const emitTool = defineTool({
+    name: "emit_params",
+    label: "Emit Params",
+    description: "Emit the extracted workflow parameters as a JSON object. Call this exactly once.",
+    parameters: Type.Object({
+      params: Type.Record(Type.String(), Type.Any(), {
+        description: "Extracted key-value parameters for the workflow",
+      }),
+    }),
+    execute: async (_id, p: any) => {
+      captured = p.params ?? {};
+      return { content: [{ type: "text" as const, text: "OK" }], details: {}, terminate: true };
+    },
+  });
+
+  const prompt = `You are a parameter extraction helper. A user wants to run a workflow and provided free-text arguments.
+
+Workflow: "${mod.meta.name}"
+${mod.meta.description ? `Description: ${mod.meta.description}` : ""}
+${mod.source ? `\nWorkflow source:\n\`\`\`\n${mod.source}\n\`\`\`` : ""}
+
+User's input: "${rawText}"
+
+Look at what parameters the workflow expects (check args?.xxx patterns in the source) and extract meaningful values from the user's free-text input. Map what the user said to the expected parameter names.
+
+Call emit_params with the extracted parameters as a JSON object.`;
+
+  const { session } = await createAgentSession({
+    cwd: ctx.cwd,
+    model: ctx.model,
+    customTools: [emitTool],
+  });
+
+  await session.prompt(prompt);
+  session.dispose();
+
+  return captured;
 }
 
 export function formatRun(run: WorkflowRun): string {
