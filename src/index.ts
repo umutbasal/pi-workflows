@@ -20,7 +20,11 @@ const WORKFLOW_PROMPT_GUIDELINES = [
 const WORKFLOW_SCRIPT_TEMPLATE = `// ─── Runtime API ───────────────────────────────────────────────────────
 // Available runtime: { agent, pipeline, step, log, args }
 //
-// agent(prompt, opts?) - spawn a sub-agent with full tool access (read/write/bash/grep)
+// agent(prompt, opts?) - spawn a sub-agent with full tool access:
+//   The agent can: read/write files, run bash commands, grep/search,
+//   list directories, fetch URLs, call APIs, install packages, etc.
+//   USE AGENT FOR EVERYTHING - don't manually code file listing, HTTP
+//   requests, parsing, or search. Just ask the agent in natural language.
 //   opts.label   - display label for tracking
 //   opts.phase   - phase name for grouping
 //   opts.schema  - JSON schema to get structured output (returns parsed JSON)
@@ -39,6 +43,13 @@ const WORKFLOW_SCRIPT_TEMPLATE = `// ─── Runtime API ───────
 // log(message) - show a progress notification to the user
 // args - parsed JSON from the workflow tool call's args parameter
 //
+// ─── KEY PRINCIPLE ─────────────────────────────────────────────────────
+// Delegate ALL I/O and intelligence to agent(). The workflow script is
+// just orchestration logic (control flow, data plumbing, aggregation).
+// DON'T: manually use fs, fetch, child_process, glob, etc.
+// DO:    ask the agent to find files, read content, search the web,
+//        call APIs, install deps, run commands, parse data, etc.
+//
 // ─── Example: File Reviewer (shows all features) ──────────────────────
 //
 // export const meta = {
@@ -54,23 +65,23 @@ const WORKFLOW_SCRIPT_TEMPLATE = `// ─── Runtime API ───────
 // export default async function ({ agent, pipeline, step, log, args }) {
 //   const dir = args?.dir || ".";
 //
-//   // agent() with schema → returns parsed JSON (structured output)
+//   // Let agent find files (it uses bash/find/fd internally)
 //   log("Finding files...");
 //   const files = await agent(
-//     \`Find all .ts files in "\${dir}", return as JSON array.\`,
+//     \`Find all .ts source files in "\${dir}", excluding node_modules and test files.\`,
 //     { label: "find-files", phase: "Discover", schema: { type: "array", items: { type: "string" } } }
 //   );
 //
-//   // pipeline() → process items concurrently through stages
+//   // pipeline() → agent reviews each file concurrently
 //   const results = await pipeline(files, (file) =>
-//     agent(\`Read "\${file}" and find bugs. Return {file, bugs: [{line, desc}]}\`, {
+//     agent(\`Read "\${file}" and find bugs. Report each with line number and description.\`, {
 //       label: \`review:\${file}\`,
 //       phase: "Analyze",
 //       schema: { type: "object", properties: { file: {type:"string"}, bugs: {type:"array",items:{type:"object"}} } },
 //     })
 //   );
 //
-//   // step() → tracked computation (no agent, just logic)
+//   // step() → pure JS aggregation (no agent needed for simple data transforms)
 //   return await step("compile", "Report", async () => {
 //     const bugsFound = results.filter(r => r?.bugs?.length > 0);
 //     log(\`Done: \${bugsFound.length} files with issues\`);
@@ -78,36 +89,41 @@ const WORKFLOW_SCRIPT_TEMPLATE = `// ─── Runtime API ───────
 //   });
 // }
 //
-// ─── Example: Simple (no phases, agent as text) ───────────────────────
+// ─── Example: Simple (agent does all the work) ────────────────────────
 //
 // export const meta = { name: "explain", description: "Explain a file" };
 //
 // export default async function ({ agent, log, args }) {
 //   const file = args?.file ?? "README.md";
 //   log(\`Explaining \${file}...\`);
-//   // agent() without schema → returns plain text string
+//   // agent reads the file, understands it, and explains - no manual fs needed
 //   return await agent(\`Read "\${file}" and explain what it does in plain English.\`);
 // }
 //
-// ─── Example: Multi-stage pipeline ────────────────────────────────────
+// ─── Example: Multi-stage pipeline (chained agent work) ───────────────
 //
 // export const meta = { name: "refactor", description: "Find and fix code smells" };
 //
 // export default async function ({ agent, pipeline, log, args }) {
-//   const files = await agent("Find all .js source files", {
-//     schema: { type: "array", items: { type: "string" } },
-//   });
-//   // Multi-stage: stage 1 analyzes, stage 2 uses prev result to fix
+//   // Agent handles discovery (uses bash, grep, find internally)
+//   const files = await agent(
+//     "Find all .js source files in this project, excluding tests and node_modules",
+//     { schema: { type: "array", items: { type: "string" } } }
+//   );
+//   // Multi-stage: stage 1 agent analyzes, stage 2 agent fixes using prev results
 //   const results = await pipeline(
 //     files,
-//     (file) => agent(\`Analyze "\${file}" for code smells\`, {
+//     (file) => agent(\`Read "\${file}" and identify code smells\`, {
 //       schema: { type: "object", properties: { file:{type:"string"}, smells:{type:"array",items:{type:"string"}} } },
 //     }),
-//     (analysis, file, i) => agent(\`Fix these smells in "\${file}": \${JSON.stringify(analysis.smells)}\`)
+//     (analysis, file, i) => agent(
+//       \`Fix these code smells in "\${file}": \${JSON.stringify(analysis.smells)}. Edit the file directly.\`
+//     )
 //   );
 //   return results;
 // }
 `;
+
 
 
 export default function piWorkflows(pi: ExtensionAPI) {
