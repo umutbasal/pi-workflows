@@ -17,7 +17,7 @@ const WORKFLOW_PROMPT_GUIDELINES = [
   "When creating new workflows, always place them in .pi/workflows/ within the project root.",
 ];
 
-const WORKFLOW_SCRIPT_TEMPLATE = `// Available runtime: { agent, pipeline, log, args }
+const WORKFLOW_SCRIPT_TEMPLATE = `// Available runtime: { agent, pipeline, step, log, args }
 //
 // agent(prompt, opts?) - spawn a sub-agent with full tool access (read/write/bash/grep)
 //   opts.label   - display label for tracking
@@ -28,6 +28,10 @@ const WORKFLOW_SCRIPT_TEMPLATE = `// Available runtime: { agent, pipeline, log, 
 // pipeline(items, ...stages) - process items through stages
 //   Each stage: (prevResult, item, index) => result
 //   Items within a stage run concurrently, stages run sequentially
+//
+// step(name, phase, fn) - track a non-agent computation step
+//   Wraps fn() with timing and status tracking in the run log
+//   Returns: whatever fn() returns
 //
 // log(message) - show a notification
 // args - parsed JSON from the tool call's args parameter

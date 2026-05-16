@@ -77,6 +77,63 @@ interface AgentOptions {
 
 ## Usage
 
+### Quick Example: Test Planning Workflow
+
+Create `.pi/workflows/test-plan.js`:
+
+```js
+export const meta = {
+  name: "test-plan",
+  description: "Analyze source files and decide what to test, how, and priority",
+};
+
+export default async function ({ agent, pipeline, log }) {
+  const files = await agent("List all source files in src/. Return only the file paths.", {
+    schema: { type: "array", items: { type: "string" } },
+  });
+
+  log(`Found ${files.length} files to analyze`);
+
+  const plans = await pipeline(files, (file) =>
+    agent(
+      `Analyze ${file} and decide:
+      - What should be tested?
+      - Test type: unit or integration?
+      - Priority: high, medium, or low?
+      Return a plan for this file.`,
+      {
+        label: `plan:${file}`,
+        schema: {
+          type: "object",
+          properties: {
+            file: { type: "string" },
+            tests: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  description: { type: "string" },
+                  type: { type: "string", enum: ["unit", "integration"] },
+                  priority: { type: "string", enum: ["high", "medium", "low"] },
+                },
+              },
+            },
+          },
+        },
+      }
+    )
+  );
+
+  return plans;
+}
+```
+
+Run it:
+
+```
+/workflow test-plan
+```
+
 ### From the tool
 
 ```

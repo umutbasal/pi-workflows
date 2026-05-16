@@ -2,7 +2,7 @@ import { describe, test, expect, mock, beforeEach } from "bun:test";
 import type { WorkflowStep } from "./types";
 
 // Mock createAgentSession before importing runtime
-const mockPrompt = mock(() => Promise.resolve());
+const mockPrompt = mock((_prompt: string) => Promise.resolve());
 const mockDispose = mock(() => {});
 const mockSubscribe = mock((cb: (event: any) => void) => {
   // Store callback so tests can trigger events
@@ -10,13 +10,14 @@ const mockSubscribe = mock((cb: (event: any) => void) => {
 });
 
 mock.module("@earendil-works/pi-coding-agent", () => ({
-  createAgentSession: mock(async () => ({
+  createAgentSession: mock(async (opts?: any) => ({
     session: {
       prompt: mockPrompt,
       subscribe: mockSubscribe,
       dispose: mockDispose,
     },
   })),
+  defineTool: mock((config: any) => config),
 }));
 
 const { createRuntime } = await import("./runtime");
@@ -160,28 +161,34 @@ describe("agent", () => {
     expect(steps[0]!.name).toBe("A".repeat(60));
   });
 
-  test("appends schema instruction when schema is provided", async () => {
-    const runtime = createRuntime(makeCtx(), () => {});
+  test("when schema is provided, prompt includes emit_result instruction", async () => {
+    const steps: WorkflowStep[] = [];
+    const runtime = createRuntime(makeCtx(), (s) => steps.push({ ...s }));
     const schema = { type: "object", properties: { x: { type: "number" } } };
 
+    // With schema, the tool-use pattern is used.
+    // The emit_result tool's execute will be called by the agent framework.
+    // In our mock, we need to simulate the tool being called.
     mockPrompt.mockImplementationOnce(async (prompt: string) => {
-      expect(prompt).toContain("output your final answer as JSON");
+      // Verify prompt contains the schema instruction
+      expect(prompt).toContain("MUST call the `emit_result` tool");
       expect(prompt).toContain('"type": "object"');
-      const cb = (mockSubscribe as any)._cb;
-      cb({
-        type: "message_end",
-        message: { role: "assistant", content: [{ type: "text", text: '{"x": 42}' }] },
-      });
+      // Simulate: since we mocked defineTool, the tool execute won't be called.
+      // The getResult() will return undefined, which is our fallback path.
     });
 
     await runtime.agent("compute x", { schema });
+
+    // Should have step completed (fallback path since mock doesn't actually call tool)
+    const lastStep = steps[steps.length - 1]!;
+    expect(lastStep.status).toBe("completed");
   });
 
-  test("does not append schema instruction when schema is undefined", async () => {
+  test("does not include emit_result instruction when schema is undefined", async () => {
     const runtime = createRuntime(makeCtx(), () => {});
 
     mockPrompt.mockImplementationOnce(async (prompt: string) => {
-      expect(prompt).not.toContain("output your final answer as JSON");
+      expect(prompt).not.toContain("emit_result");
       const cb = (mockSubscribe as any)._cb;
       cb({
         type: "message_end",
@@ -192,9 +199,8 @@ describe("agent", () => {
     await runtime.agent("say hello");
   });
 
-  test("strips markdown JSON fences from schema response", async () => {
+  test("returns text response when no schema is provided", async () => {
     const runtime = createRuntime(makeCtx(), () => {});
-    const schema = { type: "object" };
 
     mockPrompt.mockImplementationOnce(async () => {
       const cb = (mockSubscribe as any)._cb;
@@ -202,32 +208,13 @@ describe("agent", () => {
         type: "message_end",
         message: {
           role: "assistant",
-          content: [{ type: "text", text: '```json\n{"result": true}\n```' }],
+          content: [{ type: "text", text: "the answer is 42" }],
         },
       });
     });
 
-    const result = await runtime.agent("test", { schema });
-    expect(result).toEqual({ result: true });
-  });
-
-  test("returns raw string when JSON parse fails on schema response", async () => {
-    const runtime = createRuntime(makeCtx(), () => {});
-    const schema = { type: "object" };
-
-    mockPrompt.mockImplementationOnce(async () => {
-      const cb = (mockSubscribe as any)._cb;
-      cb({
-        type: "message_end",
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text: "not valid json at all" }],
-        },
-      });
-    });
-
-    const result = await runtime.agent("test", { schema });
-    expect(result).toBe("not valid json at all");
+    const result = await runtime.agent("what is the answer?");
+    expect(result).toBe("the answer is 42");
   });
 
   test("calls onStep with running status then completed status", async () => {
@@ -301,25 +288,6 @@ describe("agent", () => {
 
     await runtime.agent("test");
     expect(mockDispose).toHaveBeenCalledTimes(1);
-  });
-
-  test("parses clean JSON without fences when schema is provided", async () => {
-    const runtime = createRuntime(makeCtx(), () => {});
-    const schema = { type: "object" };
-
-    mockPrompt.mockImplementationOnce(async () => {
-      const cb = (mockSubscribe as any)._cb;
-      cb({
-        type: "message_end",
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text: '{"count": 5, "items": ["a","b"]}' }],
-        },
-      });
-    });
-
-    const result = await runtime.agent("test", { schema });
-    expect(result).toEqual({ count: 5, items: ["a", "b"] });
   });
 });
 

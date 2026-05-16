@@ -12,10 +12,12 @@ export interface AgentOptions {
 
 export type AgentFn = (prompt: string, options?: AgentOptions) => Promise<any>;
 export type LogFn = (message: string) => void;
+export type StepFn = <T>(name: string, phase: string, fn: () => T | Promise<T>) => Promise<T>;
 
 export interface PipelineContext {
   agent: AgentFn;
   log: LogFn;
+  step: StepFn;
   args: Record<string, unknown> | undefined;
 }
 
@@ -32,6 +34,7 @@ export type PipelineFn = <T>(
 
 export interface WorkflowRuntime extends PipelineContext {
   pipeline: PipelineFn;
+  step: StepFn;
 }
 
 export interface WorkflowModule {
