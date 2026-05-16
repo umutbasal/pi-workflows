@@ -17,25 +17,98 @@ const WORKFLOW_PROMPT_GUIDELINES = [
   "When creating new workflows, always place them in .pi/workflows/ within the project root.",
 ];
 
-const WORKFLOW_SCRIPT_TEMPLATE = `// Available runtime: { agent, pipeline, step, log, args }
+const WORKFLOW_SCRIPT_TEMPLATE = `// ─── Runtime API ───────────────────────────────────────────────────────
+// Available runtime: { agent, pipeline, step, log, args }
 //
 // agent(prompt, opts?) - spawn a sub-agent with full tool access (read/write/bash/grep)
 //   opts.label   - display label for tracking
 //   opts.phase   - phase name for grouping
-//   opts.schema  - JSON schema to get structured output
-//   Returns: agent's response (string or parsed JSON if schema provided)
+//   opts.schema  - JSON schema to get structured output (returns parsed JSON)
+//   Returns: agent's text response (string), or parsed JSON object if schema provided
 //
-// pipeline(items, ...stages) - process items through stages
-//   Each stage: (prevResult, item, index) => result
-//   Items within a stage run concurrently, stages run sequentially
+// pipeline(items, ...stages) - process items through concurrent stages
+//   Each stage fn: (item) => agentCall or value  (first stage)
+//                  (prevResult, item, index) => ...  (subsequent stages)
+//   Items within a stage run concurrently; stages run sequentially
+//   Returns: array of final results (same order as input items)
 //
 // step(name, phase, fn) - track a non-agent computation step
 //   Wraps fn() with timing and status tracking in the run log
 //   Returns: whatever fn() returns
 //
-// log(message) - show a notification
-// args - parsed JSON from the tool call's args parameter
+// log(message) - show a progress notification to the user
+// args - parsed JSON from the workflow tool call's args parameter
+//
+// ─── Example: File Reviewer (shows all features) ──────────────────────
+//
+// export const meta = {
+//   name: "review",
+//   description: "Review source files for issues",
+//   phases: [
+//     { title: "Discover", detail: "find files" },
+//     { title: "Analyze", detail: "review each file" },
+//     { title: "Report", detail: "compile results" },
+//   ],
+// };
+//
+// export default async function ({ agent, pipeline, step, log, args }) {
+//   const dir = args?.dir || ".";
+//
+//   // agent() with schema → returns parsed JSON (structured output)
+//   log("Finding files...");
+//   const files = await agent(
+//     \`Find all .ts files in "\${dir}", return as JSON array.\`,
+//     { label: "find-files", phase: "Discover", schema: { type: "array", items: { type: "string" } } }
+//   );
+//
+//   // pipeline() → process items concurrently through stages
+//   const results = await pipeline(files, (file) =>
+//     agent(\`Read "\${file}" and find bugs. Return {file, bugs: [{line, desc}]}\`, {
+//       label: \`review:\${file}\`,
+//       phase: "Analyze",
+//       schema: { type: "object", properties: { file: {type:"string"}, bugs: {type:"array",items:{type:"object"}} } },
+//     })
+//   );
+//
+//   // step() → tracked computation (no agent, just logic)
+//   return await step("compile", "Report", async () => {
+//     const bugsFound = results.filter(r => r?.bugs?.length > 0);
+//     log(\`Done: \${bugsFound.length} files with issues\`);
+//     return { total: files.length, issues: bugsFound };
+//   });
+// }
+//
+// ─── Example: Simple (no phases, agent as text) ───────────────────────
+//
+// export const meta = { name: "explain", description: "Explain a file" };
+//
+// export default async function ({ agent, log, args }) {
+//   const file = args?.file ?? "README.md";
+//   log(\`Explaining \${file}...\`);
+//   // agent() without schema → returns plain text string
+//   return await agent(\`Read "\${file}" and explain what it does in plain English.\`);
+// }
+//
+// ─── Example: Multi-stage pipeline ────────────────────────────────────
+//
+// export const meta = { name: "refactor", description: "Find and fix code smells" };
+//
+// export default async function ({ agent, pipeline, log, args }) {
+//   const files = await agent("Find all .js source files", {
+//     schema: { type: "array", items: { type: "string" } },
+//   });
+//   // Multi-stage: stage 1 analyzes, stage 2 uses prev result to fix
+//   const results = await pipeline(
+//     files,
+//     (file) => agent(\`Analyze "\${file}" for code smells\`, {
+//       schema: { type: "object", properties: { file:{type:"string"}, smells:{type:"array",items:{type:"string"}} } },
+//     }),
+//     (analysis, file, i) => agent(\`Fix these smells in "\${file}": \${JSON.stringify(analysis.smells)}\`)
+//   );
+//   return results;
+// }
 `;
+
 
 export default function piWorkflows(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
