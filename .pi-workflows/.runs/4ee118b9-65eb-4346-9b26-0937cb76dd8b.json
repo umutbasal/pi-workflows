@@ -1,0 +1,73 @@
+{
+  "runId": "4ee118b9-65eb-4346-9b26-0937cb76dd8b",
+  "workflow": "test-plan",
+  "status": "running",
+  "createdAt": 1778948117446,
+  "updatedAt": 1778948138897,
+  "steps": [
+    {
+      "name": "discover-sources",
+      "phase": "Discover",
+      "status": "completed",
+      "startedAt": 1778948117447,
+      "completedAt": 1778948126927,
+      "result": [
+        ".pi/workflows/test-plan.js",
+        "src/index.ts",
+        "src/loader.ts",
+        "src/runtime.ts",
+        "src/store.ts",
+        "src/types.ts"
+      ]
+    },
+    {
+      "name": "analyze:.pi/workflows/test-plan.js",
+      "phase": "Analyze",
+      "status": "running",
+      "startedAt": 1778948126927
+    },
+    {
+      "name": "analyze:src/index.ts",
+      "phase": "Analyze",
+      "status": "running",
+      "startedAt": 1778948126930
+    },
+    {
+      "name": "analyze:src/loader.ts",
+      "phase": "Analyze",
+      "status": "running",
+      "startedAt": 1778948126931
+    },
+    {
+      "name": "analyze:src/runtime.ts",
+      "phase": "Analyze",
+      "status": "running",
+      "startedAt": 1778948126932
+    },
+    {
+      "name": "analyze:src/store.ts",
+      "phase": "Analyze",
+      "status": "running",
+      "startedAt": 1778948126932
+    },
+    {
+      "name": "analyze:src/types.ts",
+      "phase": "Analyze",
+      "status": "completed",
+      "startedAt": 1778948126933,
+      "completedAt": 1778948138897,
+      "result": {
+        "file": "src/types.ts",
+        "needs_unit": false,
+        "needs_integration": false,
+        "has_existing_tests": false,
+        "priority": "skip",
+        "reason": "Pure type/interface definitions file with no runtime logic, no functions, no classes — only TypeScript type declarations and interfaces.",
+        "suggestions": [],
+        "risk_factors": [
+          "Type definitions could become inconsistent with runtime implementations, but this is caught by the TypeScript compiler, not tests"
+        ]
+      }
+    }
+  ]
+}

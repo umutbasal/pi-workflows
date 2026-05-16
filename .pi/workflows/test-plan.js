@@ -62,7 +62,7 @@ const FILE_ANALYSIS_SCHEMA = {
   },
 };
 
-export default async function ({ agent, pipeline, log, args }) {
+export default async function ({ agent, pipeline, step, log, args }) {
   const dir = args?.dir ?? ".";
   const extensions = args?.extensions ?? "ts,js,tsx,jsx,py,go,rs";
   const exclude = args?.exclude ?? "node_modules,dist,.next,build,coverage,__pycache__,.git";
@@ -132,55 +132,57 @@ Provide specific, actionable test suggestions - not generic ones. Each suggestio
   );
 
   // Phase 3: Compile prioritized report
-  const analyzed = files.map((file, i) => {
-    const result = results[i];
-    if (!result || typeof result !== "object") {
-      return { file, priority: "medium", needs_unit: false, needs_integration: false, reason: "analysis failed", suggestions: [] };
+  return await step("compile-report", "Report", async () => {
+    const analyzed = files.map((file, i) => {
+      const result = results[i];
+      if (!result || typeof result !== "object") {
+        return { file, priority: "medium", needs_unit: false, needs_integration: false, reason: "analysis failed", suggestions: [] };
+      }
+      return { file, ...result };
+    });
+
+    // Group by priority
+    const priorities = ["critical", "high", "medium", "low", "skip"];
+    const grouped = {};
+    for (const p of priorities) {
+      grouped[p] = analyzed.filter((r) => r.priority === p);
     }
-    return { file, ...result };
+
+    // Stats
+    const needsUnit = analyzed.filter((r) => r.needs_unit);
+    const needsIntegration = analyzed.filter((r) => r.needs_integration);
+    const hasExisting = analyzed.filter((r) => r.has_existing_tests);
+    const actionable = analyzed.filter((r) => r.priority !== "skip");
+
+    const summary = {
+      total_files: files.length,
+      needs_unit_tests: needsUnit.length,
+      needs_integration_tests: needsIntegration.length,
+      already_has_tests: hasExisting.length,
+      by_priority: {
+        critical: grouped.critical?.length ?? 0,
+        high: grouped.high?.length ?? 0,
+        medium: grouped.medium?.length ?? 0,
+        low: grouped.low?.length ?? 0,
+        skip: grouped.skip?.length ?? 0,
+      },
+      total_test_suggestions: analyzed.reduce(
+        (sum, r) => sum + (r.suggestions?.length ?? 0),
+        0,
+      ),
+    };
+
+    log(
+      `Analysis complete: ${actionable.length} files need tests (${summary.by_priority.critical} critical, ${summary.by_priority.high} high, ${summary.by_priority.medium} medium, ${summary.by_priority.low} low)`,
+    );
+
+    return {
+      summary,
+      critical: grouped.critical ?? [],
+      high: grouped.high ?? [],
+      medium: grouped.medium ?? [],
+      low: grouped.low ?? [],
+      skipped: grouped.skip ?? [],
+    };
   });
-
-  // Group by priority
-  const priorities = ["critical", "high", "medium", "low", "skip"];
-  const grouped = {};
-  for (const p of priorities) {
-    grouped[p] = analyzed.filter((r) => r.priority === p);
-  }
-
-  // Stats
-  const needsUnit = analyzed.filter((r) => r.needs_unit);
-  const needsIntegration = analyzed.filter((r) => r.needs_integration);
-  const hasExisting = analyzed.filter((r) => r.has_existing_tests);
-  const actionable = analyzed.filter((r) => r.priority !== "skip");
-
-  const summary = {
-    total_files: files.length,
-    needs_unit_tests: needsUnit.length,
-    needs_integration_tests: needsIntegration.length,
-    already_has_tests: hasExisting.length,
-    by_priority: {
-      critical: grouped.critical?.length ?? 0,
-      high: grouped.high?.length ?? 0,
-      medium: grouped.medium?.length ?? 0,
-      low: grouped.low?.length ?? 0,
-      skip: grouped.skip?.length ?? 0,
-    },
-    total_test_suggestions: analyzed.reduce(
-      (sum, r) => sum + (r.suggestions?.length ?? 0),
-      0,
-    ),
-  };
-
-  log(
-    `Analysis complete: ${actionable.length} files need tests (${summary.by_priority.critical} critical, ${summary.by_priority.high} high, ${summary.by_priority.medium} medium, ${summary.by_priority.low} low)`,
-  );
-
-  return {
-    summary,
-    critical: grouped.critical ?? [],
-    high: grouped.high ?? [],
-    medium: grouped.medium ?? [],
-    low: grouped.low ?? [],
-    skipped: grouped.skip ?? [],
-  };
 }
