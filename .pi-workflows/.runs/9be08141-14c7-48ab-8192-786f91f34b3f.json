@@ -1,0 +1,1436 @@
+{
+  "runId": "9be08141-14c7-48ab-8192-786f91f34b3f",
+  "workflow": "bug-review",
+  "status": "completed",
+  "createdAt": 1778948292523,
+  "updatedAt": 1778948419835,
+  "steps": [
+    {
+      "name": "discover-sources",
+      "phase": "Discover",
+      "status": "completed",
+      "startedAt": 1778948292525,
+      "completedAt": 1778948301435,
+      "result": [
+        ".pi/workflows/bug-review.js",
+        ".pi/workflows/test-plan.js",
+        "src/index.ts",
+        "src/loader.ts",
+        "src/runtime.ts",
+        "src/store.ts",
+        "src/types.ts"
+      ]
+    },
+    {
+      "name": "review:.pi/workflows/bug-review.js",
+      "phase": "Review",
+      "status": "completed",
+      "startedAt": 1778948301436,
+      "completedAt": 1778948374684,
+      "result": {
+        "file": ".pi/workflows/bug-review.js",
+        "bugs": [
+          {
+            "severity": "medium",
+            "category": "error-handling",
+            "title": "No error handling around pipeline execution — single failure crashes entire workflow",
+            "description": "The `await pipeline(files, ...)` call on line 90 has no try/catch. If any individual agent call within the pipeline rejects (e.g., network timeout, rate limit, model error), the unhandled rejection propagates up and the entire workflow crashes. All partial results from other files that completed successfully are lost. This is especially problematic for large projects where reviewing dozens of files could take significant time.",
+            "line": 90,
+            "suggestion": "Wrap the pipeline call in try/catch, or add error handling within the stage function: `(file) => agent(...).catch(err => ({ file, bugs: [], notes: `analysis failed: ${err.message}` }))`. This ensures one failed review doesn't lose all other results."
+          },
+          {
+            "severity": "low",
+            "category": "boundary",
+            "title": "Nullish coalescing doesn't catch empty string for `dir` argument",
+            "description": "Line 67 uses `args?.dir ?? \".\"` which only falls back to \".\" when `args.dir` is null or undefined. If a user passes `dir: \"\"` (empty string), it won't be caught and the agent will receive an empty string as the directory to search, likely causing the find/fd command to fail or search an unintended location.",
+            "line": 67,
+            "suggestion": "Use logical OR instead: `const dir = args?.dir || \".\"` to also catch empty strings, or add an explicit check: `const dir = args?.dir?.trim() || \".\"`"
+          },
+          {
+            "severity": "low",
+            "category": "type-safety",
+            "title": "No validation that discovery array contains only strings",
+            "description": "Line 84 checks `Array.isArray(discovery)` but doesn't validate that each element is a string. If the agent's schema parsing is lenient or returns malformed data (e.g., objects, numbers, or null entries in the array), these would be interpolated into prompts as `[object Object]`, `null`, etc., causing downstream agent calls to fail or produce nonsensical results.",
+            "line": 84,
+            "suggestion": "Filter the array to only valid strings: `const files = Array.isArray(discovery) ? discovery.filter(f => typeof f === 'string' && f.length > 0) : [];`"
+          },
+          {
+            "severity": "low",
+            "category": "code-smell",
+            "title": "Schema requires `file` property from agent but it's overwritten/redundant in mapping",
+            "description": "Line 120 does `{ file, ...result }` where both the local `file` variable and `result.file` (required by BUG_ANALYSIS_SCHEMA) represent the file path. The spread of `result` overwrites the leading `file` property. If the agent normalizes or alters the path (e.g., adds `./` prefix, resolves symlinks), the resulting object will have the agent's version rather than the canonical path from discovery. This creates potential inconsistency.",
+            "line": 120,
+            "suggestion": "Either remove `file` from the schema (since you already know it from the mapping index), or explicitly use the canonical path: `return { ...result, file }` to ensure the discovery path always wins."
+          }
+        ],
+        "overall_quality": "acceptable",
+        "notes": "The workflow is well-structured and follows the pipeline pattern correctly. The schema is well-defined, the phase separation is clear, and edge cases like empty discovery results and null/non-object pipeline results are handled. The main gap is the lack of fault tolerance — a single failing agent call can crash the entire multi-file review. For a workflow that may process many files over extended time, this is a meaningful robustness concern. The code is otherwise clean and readable."
+      }
+    },
+    {
+      "name": "review:.pi/workflows/test-plan.js",
+      "phase": "Review",
+      "status": "completed",
+      "startedAt": 1778948301438,
+      "completedAt": 1778948419834,
+      "result": {
+        "file": ".pi/workflows/test-plan.js",
+        "bugs": [
+          {
+            "severity": "medium",
+            "category": "error-handling",
+            "title": "No error handling around pipeline call - unhandled agent failures crash workflow",
+            "description": "The `pipeline` call on line 92 has no try/catch. If any individual agent call within the pipeline throws an unrecoverable error (e.g., network timeout, rate limit, context overflow), and the pipeline framework propagates that error, the entire workflow crashes without producing any partial results. The code at line 137 shows awareness of potential per-item failures (null check on results[i]), but if the pipeline itself throws rather than returning partial results, no recovery is possible.",
+            "line": 92,
+            "suggestion": "Wrap the pipeline call in try/catch and either return a partial result or a meaningful error message: `let results; try { results = await pipeline(files, ...); } catch (e) { return { error: `Analysis failed: ${e.message}`, partial: [] }; }`"
+          },
+          {
+            "severity": "medium",
+            "category": "null-reference",
+            "title": "No guard on `results` being array before indexed access",
+            "description": "On line 137, the code does `const result = results[i]` inside a `files.map()`. If `pipeline` returns something other than an array (e.g., undefined, null, or an object), this would throw a TypeError: 'Cannot read properties of undefined'. While the per-element null check on line 138 handles individual missing results, there's no check that `results` itself is a valid array with the expected length.",
+            "line": 137,
+            "suggestion": "Add a guard before the map: `const safeResults = Array.isArray(results) ? results : [];` and then use `safeResults[i]` instead of `results[i]`."
+          },
+          {
+            "severity": "low",
+            "category": "logic-error",
+            "title": "Default fallback priority 'medium' for failed analyses inflates medium count",
+            "description": "On line 139, when a file's analysis fails (result is null/invalid), it defaults to priority 'medium'. This means failed analyses get grouped with legitimately medium-priority files, inflating the medium count in the summary and potentially misleading users about actual test needs. Files that failed analysis should likely be flagged distinctly.",
+            "line": 139,
+            "suggestion": "Use a distinct priority like 'unknown' or add an `analysis_failed: true` flag, and handle it separately in grouping/reporting. Alternatively, default to 'high' since unknown files should be conservatively prioritized."
+          },
+          {
+            "severity": "low",
+            "category": "code-smell",
+            "title": "FILE_ANALYSIS_SCHEMA 'file' field in schema is redundant with pipeline mapping",
+            "description": "The schema requires the agent to return a 'file' field (line 17), but at line 141 the code does `return { file, ...result }` which overwrites whatever the agent returned for 'file' with the actual file path from the pipeline iteration. The agent-returned 'file' value is never used and could be incorrect, wasting tokens in the agent response.",
+            "line": 17,
+            "suggestion": "Remove 'file' from the schema's required fields and properties, since it's always overwritten by the mapping code."
+          }
+        ],
+        "overall_quality": "acceptable",
+        "notes": "The workflow is well-structured with clear phases and good defensive coding for the discovery step (Array.isArray check). The schema definition is thorough. Main concerns are around error resilience in the pipeline stage and the assumption that `results` will always be a properly-aligned array. The `step` function usage is consistent with the sibling workflow file (bug-review.js) and appears to be part of the phases API, so it's likely provided at runtime when meta.phases is declared."
+      }
+    },
+    {
+      "name": "review:src/index.ts",
+      "phase": "Review",
+      "status": "completed",
+      "startedAt": 1778948301439,
+      "completedAt": 1778948351766,
+      "result": {
+        "file": "src/index.ts",
+        "bugs": [
+          {
+            "severity": "high",
+            "category": "race-condition",
+            "title": "Cancel action doesn't stop running workflow and status gets overwritten",
+            "description": "When 'cancel' is invoked, it loads the run from storage, marks it as 'cancelled', and saves it. However, the actual workflow execution (from a prior 'start' call) is still running in memory via `await mod.default(runtime)`. When that execution finishes (lines 149-160), it overwrites `run.status` to 'completed' or 'failed' and calls saveRun again, effectively undoing the cancellation. The in-memory `run` object from the start call is separate from the one loaded by cancel. Additionally, no abort signal is passed to the runtime, so the workflow function has no way to know it should stop.",
+            "line": 107,
+            "suggestion": "Pass the AbortSignal (currently `_signal`) into the runtime context so workflows can check for cancellation. Before overwriting the status in the completion/error handlers, reload the run from store and check if it's been cancelled. Alternatively, maintain a map of active AbortControllers keyed by runId and abort the controller when cancel is called."
+          },
+          {
+            "severity": "medium",
+            "category": "type-safety",
+            "title": "JSON.parse result unsafely typed as Record<string, unknown>",
+            "description": "On line 120, `JSON.parse(params.args)` is assigned to `parsedArgs` which is typed as `Record<string, unknown> | undefined`. However, JSON.parse can return any valid JSON value: a string, number, boolean, null, or array. If the user passes args like `\"123\"`, `\"null\"`, or `\"[1,2,3]\"`, parsedArgs will not be a Record and downstream code consuming it as an object will behave incorrectly or crash.",
+            "line": 120,
+            "suggestion": "Add a type check after parsing: `const parsed = JSON.parse(params.args); if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) { return error response; } parsedArgs = parsed;`"
+          },
+          {
+            "severity": "medium",
+            "category": "error-handling",
+            "title": "Fire-and-forget saveRun silently swallows persistence errors",
+            "description": "On line 140, `saveRun(cwd, run).catch(() => {})` discards any error from saving intermediate workflow state. If the filesystem is full, permissions change, or the path becomes invalid, all step progress updates are silently lost with no indication to the user or any logging. This makes debugging workflow state issues very difficult.",
+            "line": 140,
+            "suggestion": "At minimum, log the error: `.catch((err) => ctx.ui.notify?.('Failed to persist workflow step: ' + err.message, 'warn'))` or use a debounced save with retry logic."
+          },
+          {
+            "severity": "low",
+            "category": "code-smell",
+            "title": "Redundant dynamic import of mkdir that shadows module-level import",
+            "description": "Line 49 dynamically imports `mkdir` from 'fs/promises' with `const { mkdir } = await import('fs/promises')`, but `mkdir` is already imported at the module level on line 4. The dynamic import is unnecessary and creates confusion about which `mkdir` is being used where.",
+            "line": 49,
+            "suggestion": "Remove the dynamic import on line 49 and use the module-level `mkdir` that's already imported: `await mkdir(getProjectWorkflowDir(ctx.cwd), { recursive: true }).catch(() => {});`"
+          }
+        ],
+        "overall_quality": "acceptable",
+        "notes": "The code is generally well-structured with good error handling in the main execution path. The primary concern is the cancel mechanism which is fundamentally broken due to the race between the cancel action updating stored state and the running workflow overwriting it upon completion. The type safety issue with JSON.parse is a common pitfall. The fire-and-forget saves are a pragmatic choice for non-critical intermediate state, but the complete silence on failure makes debugging harder."
+      }
+    },
+    {
+      "name": "review:src/loader.ts",
+      "phase": "Review",
+      "status": "completed",
+      "startedAt": 1778948301440,
+      "completedAt": 1778948345816,
+      "result": {
+        "file": "src/loader.ts",
+        "bugs": [
+          {
+            "severity": "critical",
+            "category": "security",
+            "title": "Path traversal in loadWorkflow allows arbitrary file import",
+            "description": "The `name` parameter in `loadWorkflow` is used directly in `join(dir, \\`${name}${ext}\\`)` without any sanitization. If `name` contains path traversal sequences like `../../`, `path.join` will resolve them, allowing an attacker to import (and execute) arbitrary JavaScript/TypeScript files outside the intended workflow directories. Since `import()` executes the module, this is effectively arbitrary code execution if the name is user-controlled.",
+            "line": 95,
+            "suggestion": "Validate that `name` does not contain path separators or traversal sequences. For example: `if (name.includes('/') || name.includes('\\\\') || name.includes('..')) return null;` at the start of the function. Alternatively, after computing `path`, verify it starts with `dir + path.sep`."
+          },
+          {
+            "severity": "high",
+            "category": "logic-error",
+            "title": "Early return null prevents checking other extensions and directories",
+            "description": "In `loadWorkflow`, when a module is successfully imported but `!mod.meta?.name` is true, the function immediately returns `null`. This prevents checking other file extensions in the same directory or other directories entirely. For example, if `foo.js` exists as a utility file (no meta) in a directory, the function will never find `foo.mjs` or `foo.ts` which might be the actual workflow, nor will it look in any subsequent directories.",
+            "line": 98,
+            "suggestion": "Replace `return null` with `continue` to keep searching other extensions/directories. If you want to stop searching once any file with that base name is found (regardless of validity), break out of both loops and return null, but at minimum try all extensions in the current directory first."
+          },
+          {
+            "severity": "medium",
+            "category": "type-safety",
+            "title": "Unsafe cast of imported module to WorkflowModule",
+            "description": "The module is cast to `WorkflowModule` with only a check for `mod.meta?.name`. The module may not have a default export function or other required properties of the WorkflowModule interface. Callers relying on the full WorkflowModule shape (e.g., calling `mod.default(...)`) could crash at runtime if the module doesn't conform.",
+            "line": 99,
+            "suggestion": "Add validation for the required shape before casting, e.g., check that `typeof mod.default === 'function'` and that `mod.meta` has the expected structure. Return null if validation fails."
+          },
+          {
+            "severity": "low",
+            "category": "performance",
+            "title": "Redundant double call to parse(f) in listDir",
+            "description": "In the `listDir` function, `parse(f)` is called once in the `.filter()` callback and again in the `.map()` callback for the same file. While not a major performance issue, it's unnecessary work that could be avoided.",
+            "line": 68,
+            "suggestion": "Use a single pass with `.flatMap()` or `.reduce()`, or chain `.map(f => ({ parsed: parse(f), f }))` first, then filter and map from the pre-parsed result."
+          }
+        ],
+        "overall_quality": "concerning",
+        "notes": "The file has a critical path traversal vulnerability that allows importing arbitrary files when `name` is user-controlled, and a significant logic error that causes workflows to be unfindable in certain valid configurations. The directory traversal logic in `discoverProjectDirs` and `findGitRoot` is well-structured, but the core `loadWorkflow` function has both a security issue and incorrect early-exit behavior that undermine its reliability."
+      }
+    },
+    {
+      "name": "review:src/runtime.ts",
+      "phase": "Review",
+      "status": "completed",
+      "startedAt": 1778948301441,
+      "completedAt": 1778948368317,
+      "result": {
+        "file": "src/runtime.ts",
+        "bugs": [
+          {
+            "severity": "medium",
+            "category": "resource-leak",
+            "title": "Session not disposed when session.prompt() throws",
+            "description": "In the `agent` function, if `session.prompt()` throws an exception (e.g., network error, API error), the control flow jumps directly to the outer `catch` block at line 138, bypassing `session.dispose()` at lines 110 and 131. This means the agent session's resources (event listeners, connections, etc.) are never cleaned up. This affects both the schema path and the non-schema path.",
+            "line": 106,
+            "suggestion": "Wrap each session usage in a try/finally block to ensure disposal:\n\n```typescript\nconst { session } = await createAgentSession({ ... });\ntry {\n  await session.prompt(schemaPrompt);\n} finally {\n  session.dispose();\n}\n```\n\nDo this for both the schema and non-schema code paths."
+          },
+          {
+            "severity": "medium",
+            "category": "concurrency",
+            "title": "Unbounded concurrency in pipeline stages",
+            "description": "The `pipeline` function processes ALL items through a stage concurrently via `Promise.all(tasks)` with no concurrency limit. If a workflow passes a large array of items (e.g., 100 files to analyze), all of them will be sent to the agent API simultaneously, potentially overwhelming the API rate limit, causing OOM, or triggering throttling. This is especially problematic since each `stage` could internally call `agent()` which creates sessions.",
+            "line": 157,
+            "suggestion": "Add a concurrency limit using a semaphore pattern or batching, or accept a `concurrency` option:\n\n```typescript\nconst pipeline: PipelineFn = async (items, ...stages) => {\n  // Process in batches of e.g. 4\n  const concurrency = 4;\n  // Use p-limit or manual batching\n};\n```"
+          },
+          {
+            "severity": "low",
+            "category": "logic-error",
+            "title": "responseText captures only last text block, losing earlier text",
+            "description": "In the non-schema path, the `subscribe` handler overwrites `responseText` for each text block (`responseText = block.text`). If an assistant message contains multiple text content blocks (rare but possible), only the last one is returned. More importantly, if the agent does multi-turn interaction (using tools), only the final message's text is captured, which may be empty or minimal if the model's last turn was just a tool call.",
+            "line": 127,
+            "suggestion": "Append text blocks instead of overwriting, or accumulate across messages:\n\n```typescript\nfor (const block of msg.content) {\n  if (block.type === \"text\") {\n    responseText += block.text;\n  }\n}\n```\n\nOr if you truly only want the last message's text, document this clearly."
+          },
+          {
+            "severity": "low",
+            "category": "error-handling",
+            "title": "Agent errors are silently swallowed, returning undefined indistinguishable from no-result",
+            "description": "The `agent` function catches all errors and returns `undefined`. The caller cannot distinguish between 'the model intentionally returned nothing' and 'a critical error occurred'. While the error is recorded on the step object via the `onStep` callback, callers that only check the return value will silently proceed with `undefined`, potentially leading to downstream failures in workflows that depend on the result.",
+            "line": 138,
+            "suggestion": "Consider either re-throwing the error (with the step still updated), returning a discriminated result type like `{ ok: true, value } | { ok: false, error }`, or at minimum logging via `log()` before returning undefined:\n\n```typescript\n} catch (err: any) {\n  step.status = \"failed\";\n  step.completedAt = Date.now();\n  step.error = err?.message ?? String(err);\n  onStep(step);\n  log(`Agent step \"${step.name}\" failed: ${step.error}`);\n  return undefined;\n}\n```"
+          },
+          {
+            "severity": "low",
+            "category": "logic-error",
+            "title": "Pipeline passes undefined to subsequent stages after a stage failure",
+            "description": "When a pipeline stage throws for a particular item, the result is set to `{ _item: item, _result: undefined }`. The next stage then receives `undefined` as its `input` argument. If the next stage doesn't handle `undefined` input gracefully, it will throw (which is caught, producing another `undefined`), causing a cascade of silent failures across all remaining stages for that item.",
+            "line": 152,
+            "suggestion": "Consider filtering out failed items from subsequent stages, or providing a sentinel value that stages can check:\n\n```typescript\ncatch (err) {\n  log(`Pipeline stage failed for item ${index}: ${err}`);\n  return { _item: item, _result: undefined, _failed: true };\n}\n// Then filter before next stage:\nconst activeResults = results.filter(r => !r._failed);\n```"
+          }
+        ],
+        "overall_quality": "acceptable",
+        "notes": "The code is well-structured with clear separation of concerns. The createEmitResultTool pattern for structured output is clever and well-documented. The main concern is the resource leak from missing try/finally around session usage, which could accumulate in long-running workflows. The pipeline's unbounded concurrency is a practical concern for production use. Type safety is reasonable given the dynamic nature of the schema handling, though the `as any` casts could be tightened."
+      }
+    },
+    {
+      "name": "review:src/store.ts",
+      "phase": "Review",
+      "status": "completed",
+      "startedAt": 1778948301442,
+      "completedAt": 1778948359969,
+      "result": {
+        "file": "src/store.ts",
+        "bugs": [
+          {
+            "severity": "medium",
+            "category": "security",
+            "title": "Path traversal via runId parameter",
+            "description": "The `runPath` function constructs a file path using `runId` without sanitization: `join(runsDir(cwd), \\`${runId}.json\\`)`. If a malicious `runId` contains path traversal sequences like `../../etc/passwd`, the resulting path would escape the `.pi-workflows/.runs/` directory. In the current usage, new runs use `randomUUID()` (safe), but `loadRun` is called with user-supplied `params.run_id` from tool parameters (in index.ts lines 108, 119). An attacker providing a crafted `run_id` could read arbitrary JSON files on the filesystem via `loadRun`.",
+            "line": 12,
+            "suggestion": "Validate that `runId` contains no path separators or '..' sequences. For example: `if (runId.includes('/') || runId.includes('\\\\') || runId.includes('..')) throw new Error('Invalid runId');` Or use `path.basename(runId)` to strip directory components before constructing the path."
+          },
+          {
+            "severity": "low",
+            "category": "error-handling",
+            "title": "loadRun swallows all errors including corruption/permission issues",
+            "description": "The catch block in `loadRun` returns `null` for any error, including JSON parse failures (corrupted files), permission denied errors, or other unexpected I/O errors. This means corrupted run files are silently treated as non-existent, making debugging difficult. For ENOENT (file not found) returning null is appropriate, but other errors should likely propagate.",
+            "line": 29,
+            "suggestion": "Catch the error, check if it's an ENOENT/file-not-found error and return null only in that case. For other errors (parse failures, permission errors), either re-throw or log a warning: `catch (err: any) { if (err?.code === 'ENOENT') return null; throw err; }`"
+          },
+          {
+            "severity": "low",
+            "category": "type-safety",
+            "title": "Unsafe type assertion on parsed JSON",
+            "description": "`JSON.parse(data) as WorkflowRun` performs no runtime validation. If a run file is manually edited, partially written (due to a crash during `saveRun`), or comes from an older schema version, the returned object may not actually conform to `WorkflowRun`. Callers will access properties like `run.steps`, `run.status`, `run.updatedAt` which could be undefined.",
+            "line": 27,
+            "suggestion": "Add minimal runtime validation before returning, e.g. check that the parsed object has the required fields (`runId`, `status`, `updatedAt`, `steps` array). Consider using a schema validation library like zod, or at minimum: `const parsed = JSON.parse(data); if (!parsed?.runId || !parsed?.status) return null;`"
+          }
+        ],
+        "overall_quality": "acceptable",
+        "notes": "The file is small, focused, and well-structured. The main concern is the lack of runId sanitization which creates a path traversal risk when called with user-supplied input. The error handling strategy of returning null/empty-array is reasonable for a simple file-based store but could benefit from distinguishing \"not found\" from \"corrupted/inaccessible\". The code is otherwise clean with proper use of async/await, recursive directory creation, and type predicates in the filter."
+      }
+    },
+    {
+      "name": "review:src/types.ts",
+      "phase": "Review",
+      "status": "completed",
+      "startedAt": 1778948301443,
+      "completedAt": 1778948334383,
+      "result": {
+        "file": "src/types.ts",
+        "bugs": [
+          {
+            "severity": "low",
+            "category": "code-smell",
+            "title": "Redundant 'step' property in WorkflowRuntime",
+            "description": "WorkflowRuntime extends PipelineContext which already declares 'step: StepFn'. Redeclaring it in WorkflowRuntime (line 36) is redundant. While not a runtime bug (since the types are identical), it creates a maintenance risk: if someone changes the type in one place but not the other, it could cause confusing type errors.",
+            "line": 36,
+            "suggestion": "Remove the redundant 'step: StepFn;' from WorkflowRuntime since it's already inherited from PipelineContext."
+          },
+          {
+            "severity": "low",
+            "category": "type-safety",
+            "title": "PipelineStageFn 'item' parameter typed as 'any' loses type connection to pipeline input",
+            "description": "PipelineStageFn<TIn, TOut> declares the second parameter 'item' as 'any' instead of connecting it to the generic type T from PipelineFn's items array. This means implementers of pipeline stages get no type checking on the original item parameter, which can lead to runtime type errors that TypeScript won't catch.",
+            "line": 23,
+            "suggestion": "Add a third generic parameter to PipelineStageFn: `PipelineStageFn<TIn, TOut, TItem = unknown>` with signature `(input: TIn, item: TItem, index: number)`, or at minimum use 'unknown' instead of 'any' to force explicit type narrowing."
+          },
+          {
+            "severity": "low",
+            "category": "type-safety",
+            "title": "PipelineFn return type is Promise<any[]> defeating downstream type safety",
+            "description": "The PipelineFn type returns Promise<any[]>, which means any code consuming the pipeline result loses all type safety. Combined with the PipelineStageFn<any, any>[] rest parameter, the entire pipeline is effectively untyped at the boundary.",
+            "line": 28,
+            "suggestion": "Consider returning Promise<unknown[]> to force consumers to narrow the type, or use more sophisticated generics to infer the output type from the last stage."
+          }
+        ],
+        "overall_quality": "acceptable",
+        "notes": "This is a pure type definitions file with no runtime code, so the risk of actual bugs is inherently low. The types are well-structured and cover the workflow domain model comprehensively. The main concerns are around excessive use of 'any' which weakens type safety guarantees, and one redundant property declaration. The design pattern of PipelineStageFn receiving both the previous stage's output and the original item is a reasonable architectural choice, though the naming could be clearer."
+      }
+    },
+    {
+      "name": "compile-report",
+      "phase": "Report",
+      "status": "completed",
+      "startedAt": 1778948419834,
+      "completedAt": 1778948419835,
+      "result": {
+        "summary": {
+          "total_files_reviewed": 7,
+          "files_with_bugs": 7,
+          "clean_files": 0,
+          "total_bugs_found": 27,
+          "by_severity": {
+            "critical": 1,
+            "high": 2,
+            "medium": 9,
+            "low": 15
+          },
+          "by_category": {
+            "type-safety": 6,
+            "error-handling": 5,
+            "code-smell": 4,
+            "logic-error": 4,
+            "security": 2,
+            "boundary": 1,
+            "null-reference": 1,
+            "race-condition": 1,
+            "performance": 1,
+            "resource-leak": 1,
+            "concurrency": 1
+          }
+        },
+        "critical": [
+          {
+            "severity": "critical",
+            "category": "security",
+            "title": "Path traversal in loadWorkflow allows arbitrary file import",
+            "description": "The `name` parameter in `loadWorkflow` is used directly in `join(dir, \\`${name}${ext}\\`)` without any sanitization. If `name` contains path traversal sequences like `../../`, `path.join` will resolve them, allowing an attacker to import (and execute) arbitrary JavaScript/TypeScript files outside the intended workflow directories. Since `import()` executes the module, this is effectively arbitrary code execution if the name is user-controlled.",
+            "line": 95,
+            "suggestion": "Validate that `name` does not contain path separators or traversal sequences. For example: `if (name.includes('/') || name.includes('\\\\') || name.includes('..')) return null;` at the start of the function. Alternatively, after computing `path`, verify it starts with `dir + path.sep`.",
+            "file": "src/loader.ts"
+          }
+        ],
+        "high": [
+          {
+            "severity": "high",
+            "category": "race-condition",
+            "title": "Cancel action doesn't stop running workflow and status gets overwritten",
+            "description": "When 'cancel' is invoked, it loads the run from storage, marks it as 'cancelled', and saves it. However, the actual workflow execution (from a prior 'start' call) is still running in memory via `await mod.default(runtime)`. When that execution finishes (lines 149-160), it overwrites `run.status` to 'completed' or 'failed' and calls saveRun again, effectively undoing the cancellation. The in-memory `run` object from the start call is separate from the one loaded by cancel. Additionally, no abort signal is passed to the runtime, so the workflow function has no way to know it should stop.",
+            "line": 107,
+            "suggestion": "Pass the AbortSignal (currently `_signal`) into the runtime context so workflows can check for cancellation. Before overwriting the status in the completion/error handlers, reload the run from store and check if it's been cancelled. Alternatively, maintain a map of active AbortControllers keyed by runId and abort the controller when cancel is called.",
+            "file": "src/index.ts"
+          },
+          {
+            "severity": "high",
+            "category": "logic-error",
+            "title": "Early return null prevents checking other extensions and directories",
+            "description": "In `loadWorkflow`, when a module is successfully imported but `!mod.meta?.name` is true, the function immediately returns `null`. This prevents checking other file extensions in the same directory or other directories entirely. For example, if `foo.js` exists as a utility file (no meta) in a directory, the function will never find `foo.mjs` or `foo.ts` which might be the actual workflow, nor will it look in any subsequent directories.",
+            "line": 98,
+            "suggestion": "Replace `return null` with `continue` to keep searching other extensions/directories. If you want to stop searching once any file with that base name is found (regardless of validity), break out of both loops and return null, but at minimum try all extensions in the current directory first.",
+            "file": "src/loader.ts"
+          }
+        ],
+        "medium": [
+          {
+            "severity": "medium",
+            "category": "error-handling",
+            "title": "No error handling around pipeline execution — single failure crashes entire workflow",
+            "description": "The `await pipeline(files, ...)` call on line 90 has no try/catch. If any individual agent call within the pipeline rejects (e.g., network timeout, rate limit, model error), the unhandled rejection propagates up and the entire workflow crashes. All partial results from other files that completed successfully are lost. This is especially problematic for large projects where reviewing dozens of files could take significant time.",
+            "line": 90,
+            "suggestion": "Wrap the pipeline call in try/catch, or add error handling within the stage function: `(file) => agent(...).catch(err => ({ file, bugs: [], notes: `analysis failed: ${err.message}` }))`. This ensures one failed review doesn't lose all other results.",
+            "file": ".pi/workflows/bug-review.js"
+          },
+          {
+            "severity": "medium",
+            "category": "error-handling",
+            "title": "No error handling around pipeline call - unhandled agent failures crash workflow",
+            "description": "The `pipeline` call on line 92 has no try/catch. If any individual agent call within the pipeline throws an unrecoverable error (e.g., network timeout, rate limit, context overflow), and the pipeline framework propagates that error, the entire workflow crashes without producing any partial results. The code at line 137 shows awareness of potential per-item failures (null check on results[i]), but if the pipeline itself throws rather than returning partial results, no recovery is possible.",
+            "line": 92,
+            "suggestion": "Wrap the pipeline call in try/catch and either return a partial result or a meaningful error message: `let results; try { results = await pipeline(files, ...); } catch (e) { return { error: `Analysis failed: ${e.message}`, partial: [] }; }`",
+            "file": ".pi/workflows/test-plan.js"
+          },
+          {
+            "severity": "medium",
+            "category": "null-reference",
+            "title": "No guard on `results` being array before indexed access",
+            "description": "On line 137, the code does `const result = results[i]` inside a `files.map()`. If `pipeline` returns something other than an array (e.g., undefined, null, or an object), this would throw a TypeError: 'Cannot read properties of undefined'. While the per-element null check on line 138 handles individual missing results, there's no check that `results` itself is a valid array with the expected length.",
+            "line": 137,
+            "suggestion": "Add a guard before the map: `const safeResults = Array.isArray(results) ? results : [];` and then use `safeResults[i]` instead of `results[i]`.",
+            "file": ".pi/workflows/test-plan.js"
+          },
+          {
+            "severity": "medium",
+            "category": "type-safety",
+            "title": "JSON.parse result unsafely typed as Record<string, unknown>",
+            "description": "On line 120, `JSON.parse(params.args)` is assigned to `parsedArgs` which is typed as `Record<string, unknown> | undefined`. However, JSON.parse can return any valid JSON value: a string, number, boolean, null, or array. If the user passes args like `\"123\"`, `\"null\"`, or `\"[1,2,3]\"`, parsedArgs will not be a Record and downstream code consuming it as an object will behave incorrectly or crash.",
+            "line": 120,
+            "suggestion": "Add a type check after parsing: `const parsed = JSON.parse(params.args); if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) { return error response; } parsedArgs = parsed;`",
+            "file": "src/index.ts"
+          },
+          {
+            "severity": "medium",
+            "category": "error-handling",
+            "title": "Fire-and-forget saveRun silently swallows persistence errors",
+            "description": "On line 140, `saveRun(cwd, run).catch(() => {})` discards any error from saving intermediate workflow state. If the filesystem is full, permissions change, or the path becomes invalid, all step progress updates are silently lost with no indication to the user or any logging. This makes debugging workflow state issues very difficult.",
+            "line": 140,
+            "suggestion": "At minimum, log the error: `.catch((err) => ctx.ui.notify?.('Failed to persist workflow step: ' + err.message, 'warn'))` or use a debounced save with retry logic.",
+            "file": "src/index.ts"
+          },
+          {
+            "severity": "medium",
+            "category": "type-safety",
+            "title": "Unsafe cast of imported module to WorkflowModule",
+            "description": "The module is cast to `WorkflowModule` with only a check for `mod.meta?.name`. The module may not have a default export function or other required properties of the WorkflowModule interface. Callers relying on the full WorkflowModule shape (e.g., calling `mod.default(...)`) could crash at runtime if the module doesn't conform.",
+            "line": 99,
+            "suggestion": "Add validation for the required shape before casting, e.g., check that `typeof mod.default === 'function'` and that `mod.meta` has the expected structure. Return null if validation fails.",
+            "file": "src/loader.ts"
+          },
+          {
+            "severity": "medium",
+            "category": "resource-leak",
+            "title": "Session not disposed when session.prompt() throws",
+            "description": "In the `agent` function, if `session.prompt()` throws an exception (e.g., network error, API error), the control flow jumps directly to the outer `catch` block at line 138, bypassing `session.dispose()` at lines 110 and 131. This means the agent session's resources (event listeners, connections, etc.) are never cleaned up. This affects both the schema path and the non-schema path.",
+            "line": 106,
+            "suggestion": "Wrap each session usage in a try/finally block to ensure disposal:\n\n```typescript\nconst { session } = await createAgentSession({ ... });\ntry {\n  await session.prompt(schemaPrompt);\n} finally {\n  session.dispose();\n}\n```\n\nDo this for both the schema and non-schema code paths.",
+            "file": "src/runtime.ts"
+          },
+          {
+            "severity": "medium",
+            "category": "concurrency",
+            "title": "Unbounded concurrency in pipeline stages",
+            "description": "The `pipeline` function processes ALL items through a stage concurrently via `Promise.all(tasks)` with no concurrency limit. If a workflow passes a large array of items (e.g., 100 files to analyze), all of them will be sent to the agent API simultaneously, potentially overwhelming the API rate limit, causing OOM, or triggering throttling. This is especially problematic since each `stage` could internally call `agent()` which creates sessions.",
+            "line": 157,
+            "suggestion": "Add a concurrency limit using a semaphore pattern or batching, or accept a `concurrency` option:\n\n```typescript\nconst pipeline: PipelineFn = async (items, ...stages) => {\n  // Process in batches of e.g. 4\n  const concurrency = 4;\n  // Use p-limit or manual batching\n};\n```",
+            "file": "src/runtime.ts"
+          },
+          {
+            "severity": "medium",
+            "category": "security",
+            "title": "Path traversal via runId parameter",
+            "description": "The `runPath` function constructs a file path using `runId` without sanitization: `join(runsDir(cwd), \\`${runId}.json\\`)`. If a malicious `runId` contains path traversal sequences like `../../etc/passwd`, the resulting path would escape the `.pi-workflows/.runs/` directory. In the current usage, new runs use `randomUUID()` (safe), but `loadRun` is called with user-supplied `params.run_id` from tool parameters (in index.ts lines 108, 119). An attacker providing a crafted `run_id` could read arbitrary JSON files on the filesystem via `loadRun`.",
+            "line": 12,
+            "suggestion": "Validate that `runId` contains no path separators or '..' sequences. For example: `if (runId.includes('/') || runId.includes('\\\\') || runId.includes('..')) throw new Error('Invalid runId');` Or use `path.basename(runId)` to strip directory components before constructing the path.",
+            "file": "src/store.ts"
+          }
+        ],
+        "low": [
+          {
+            "severity": "low",
+            "category": "boundary",
+            "title": "Nullish coalescing doesn't catch empty string for `dir` argument",
+            "description": "Line 67 uses `args?.dir ?? \".\"` which only falls back to \".\" when `args.dir` is null or undefined. If a user passes `dir: \"\"` (empty string), it won't be caught and the agent will receive an empty string as the directory to search, likely causing the find/fd command to fail or search an unintended location.",
+            "line": 67,
+            "suggestion": "Use logical OR instead: `const dir = args?.dir || \".\"` to also catch empty strings, or add an explicit check: `const dir = args?.dir?.trim() || \".\"`",
+            "file": ".pi/workflows/bug-review.js"
+          },
+          {
+            "severity": "low",
+            "category": "type-safety",
+            "title": "No validation that discovery array contains only strings",
+            "description": "Line 84 checks `Array.isArray(discovery)` but doesn't validate that each element is a string. If the agent's schema parsing is lenient or returns malformed data (e.g., objects, numbers, or null entries in the array), these would be interpolated into prompts as `[object Object]`, `null`, etc., causing downstream agent calls to fail or produce nonsensical results.",
+            "line": 84,
+            "suggestion": "Filter the array to only valid strings: `const files = Array.isArray(discovery) ? discovery.filter(f => typeof f === 'string' && f.length > 0) : [];`",
+            "file": ".pi/workflows/bug-review.js"
+          },
+          {
+            "severity": "low",
+            "category": "code-smell",
+            "title": "Schema requires `file` property from agent but it's overwritten/redundant in mapping",
+            "description": "Line 120 does `{ file, ...result }` where both the local `file` variable and `result.file` (required by BUG_ANALYSIS_SCHEMA) represent the file path. The spread of `result` overwrites the leading `file` property. If the agent normalizes or alters the path (e.g., adds `./` prefix, resolves symlinks), the resulting object will have the agent's version rather than the canonical path from discovery. This creates potential inconsistency.",
+            "line": 120,
+            "suggestion": "Either remove `file` from the schema (since you already know it from the mapping index), or explicitly use the canonical path: `return { ...result, file }` to ensure the discovery path always wins.",
+            "file": ".pi/workflows/bug-review.js"
+          },
+          {
+            "severity": "low",
+            "category": "logic-error",
+            "title": "Default fallback priority 'medium' for failed analyses inflates medium count",
+            "description": "On line 139, when a file's analysis fails (result is null/invalid), it defaults to priority 'medium'. This means failed analyses get grouped with legitimately medium-priority files, inflating the medium count in the summary and potentially misleading users about actual test needs. Files that failed analysis should likely be flagged distinctly.",
+            "line": 139,
+            "suggestion": "Use a distinct priority like 'unknown' or add an `analysis_failed: true` flag, and handle it separately in grouping/reporting. Alternatively, default to 'high' since unknown files should be conservatively prioritized.",
+            "file": ".pi/workflows/test-plan.js"
+          },
+          {
+            "severity": "low",
+            "category": "code-smell",
+            "title": "FILE_ANALYSIS_SCHEMA 'file' field in schema is redundant with pipeline mapping",
+            "description": "The schema requires the agent to return a 'file' field (line 17), but at line 141 the code does `return { file, ...result }` which overwrites whatever the agent returned for 'file' with the actual file path from the pipeline iteration. The agent-returned 'file' value is never used and could be incorrect, wasting tokens in the agent response.",
+            "line": 17,
+            "suggestion": "Remove 'file' from the schema's required fields and properties, since it's always overwritten by the mapping code.",
+            "file": ".pi/workflows/test-plan.js"
+          },
+          {
+            "severity": "low",
+            "category": "code-smell",
+            "title": "Redundant dynamic import of mkdir that shadows module-level import",
+            "description": "Line 49 dynamically imports `mkdir` from 'fs/promises' with `const { mkdir } = await import('fs/promises')`, but `mkdir` is already imported at the module level on line 4. The dynamic import is unnecessary and creates confusion about which `mkdir` is being used where.",
+            "line": 49,
+            "suggestion": "Remove the dynamic import on line 49 and use the module-level `mkdir` that's already imported: `await mkdir(getProjectWorkflowDir(ctx.cwd), { recursive: true }).catch(() => {});`",
+            "file": "src/index.ts"
+          },
+          {
+            "severity": "low",
+            "category": "performance",
+            "title": "Redundant double call to parse(f) in listDir",
+            "description": "In the `listDir` function, `parse(f)` is called once in the `.filter()` callback and again in the `.map()` callback for the same file. While not a major performance issue, it's unnecessary work that could be avoided.",
+            "line": 68,
+            "suggestion": "Use a single pass with `.flatMap()` or `.reduce()`, or chain `.map(f => ({ parsed: parse(f), f }))` first, then filter and map from the pre-parsed result.",
+            "file": "src/loader.ts"
+          },
+          {
+            "severity": "low",
+            "category": "logic-error",
+            "title": "responseText captures only last text block, losing earlier text",
+            "description": "In the non-schema path, the `subscribe` handler overwrites `responseText` for each text block (`responseText = block.text`). If an assistant message contains multiple text content blocks (rare but possible), only the last one is returned. More importantly, if the agent does multi-turn interaction (using tools), only the final message's text is captured, which may be empty or minimal if the model's last turn was just a tool call.",
+            "line": 127,
+            "suggestion": "Append text blocks instead of overwriting, or accumulate across messages:\n\n```typescript\nfor (const block of msg.content) {\n  if (block.type === \"text\") {\n    responseText += block.text;\n  }\n}\n```\n\nOr if you truly only want the last message's text, document this clearly.",
+            "file": "src/runtime.ts"
+          },
+          {
+            "severity": "low",
+            "category": "error-handling",
+            "title": "Agent errors are silently swallowed, returning undefined indistinguishable from no-result",
+            "description": "The `agent` function catches all errors and returns `undefined`. The caller cannot distinguish between 'the model intentionally returned nothing' and 'a critical error occurred'. While the error is recorded on the step object via the `onStep` callback, callers that only check the return value will silently proceed with `undefined`, potentially leading to downstream failures in workflows that depend on the result.",
+            "line": 138,
+            "suggestion": "Consider either re-throwing the error (with the step still updated), returning a discriminated result type like `{ ok: true, value } | { ok: false, error }`, or at minimum logging via `log()` before returning undefined:\n\n```typescript\n} catch (err: any) {\n  step.status = \"failed\";\n  step.completedAt = Date.now();\n  step.error = err?.message ?? String(err);\n  onStep(step);\n  log(`Agent step \"${step.name}\" failed: ${step.error}`);\n  return undefined;\n}\n```",
+            "file": "src/runtime.ts"
+          },
+          {
+            "severity": "low",
+            "category": "logic-error",
+            "title": "Pipeline passes undefined to subsequent stages after a stage failure",
+            "description": "When a pipeline stage throws for a particular item, the result is set to `{ _item: item, _result: undefined }`. The next stage then receives `undefined` as its `input` argument. If the next stage doesn't handle `undefined` input gracefully, it will throw (which is caught, producing another `undefined`), causing a cascade of silent failures across all remaining stages for that item.",
+            "line": 152,
+            "suggestion": "Consider filtering out failed items from subsequent stages, or providing a sentinel value that stages can check:\n\n```typescript\ncatch (err) {\n  log(`Pipeline stage failed for item ${index}: ${err}`);\n  return { _item: item, _result: undefined, _failed: true };\n}\n// Then filter before next stage:\nconst activeResults = results.filter(r => !r._failed);\n```",
+            "file": "src/runtime.ts"
+          },
+          {
+            "severity": "low",
+            "category": "error-handling",
+            "title": "loadRun swallows all errors including corruption/permission issues",
+            "description": "The catch block in `loadRun` returns `null` for any error, including JSON parse failures (corrupted files), permission denied errors, or other unexpected I/O errors. This means corrupted run files are silently treated as non-existent, making debugging difficult. For ENOENT (file not found) returning null is appropriate, but other errors should likely propagate.",
+            "line": 29,
+            "suggestion": "Catch the error, check if it's an ENOENT/file-not-found error and return null only in that case. For other errors (parse failures, permission errors), either re-throw or log a warning: `catch (err: any) { if (err?.code === 'ENOENT') return null; throw err; }`",
+            "file": "src/store.ts"
+          },
+          {
+            "severity": "low",
+            "category": "type-safety",
+            "title": "Unsafe type assertion on parsed JSON",
+            "description": "`JSON.parse(data) as WorkflowRun` performs no runtime validation. If a run file is manually edited, partially written (due to a crash during `saveRun`), or comes from an older schema version, the returned object may not actually conform to `WorkflowRun`. Callers will access properties like `run.steps`, `run.status`, `run.updatedAt` which could be undefined.",
+            "line": 27,
+            "suggestion": "Add minimal runtime validation before returning, e.g. check that the parsed object has the required fields (`runId`, `status`, `updatedAt`, `steps` array). Consider using a schema validation library like zod, or at minimum: `const parsed = JSON.parse(data); if (!parsed?.runId || !parsed?.status) return null;`",
+            "file": "src/store.ts"
+          },
+          {
+            "severity": "low",
+            "category": "code-smell",
+            "title": "Redundant 'step' property in WorkflowRuntime",
+            "description": "WorkflowRuntime extends PipelineContext which already declares 'step: StepFn'. Redeclaring it in WorkflowRuntime (line 36) is redundant. While not a runtime bug (since the types are identical), it creates a maintenance risk: if someone changes the type in one place but not the other, it could cause confusing type errors.",
+            "line": 36,
+            "suggestion": "Remove the redundant 'step: StepFn;' from WorkflowRuntime since it's already inherited from PipelineContext.",
+            "file": "src/types.ts"
+          },
+          {
+            "severity": "low",
+            "category": "type-safety",
+            "title": "PipelineStageFn 'item' parameter typed as 'any' loses type connection to pipeline input",
+            "description": "PipelineStageFn<TIn, TOut> declares the second parameter 'item' as 'any' instead of connecting it to the generic type T from PipelineFn's items array. This means implementers of pipeline stages get no type checking on the original item parameter, which can lead to runtime type errors that TypeScript won't catch.",
+            "line": 23,
+            "suggestion": "Add a third generic parameter to PipelineStageFn: `PipelineStageFn<TIn, TOut, TItem = unknown>` with signature `(input: TIn, item: TItem, index: number)`, or at minimum use 'unknown' instead of 'any' to force explicit type narrowing.",
+            "file": "src/types.ts"
+          },
+          {
+            "severity": "low",
+            "category": "type-safety",
+            "title": "PipelineFn return type is Promise<any[]> defeating downstream type safety",
+            "description": "The PipelineFn type returns Promise<any[]>, which means any code consuming the pipeline result loses all type safety. Combined with the PipelineStageFn<any, any>[] rest parameter, the entire pipeline is effectively untyped at the boundary.",
+            "line": 28,
+            "suggestion": "Consider returning Promise<unknown[]> to force consumers to narrow the type, or use more sophisticated generics to infer the output type from the last stage.",
+            "file": "src/types.ts"
+          }
+        ],
+        "files": [
+          {
+            "file": ".pi/workflows/bug-review.js",
+            "bugs": [
+              {
+                "severity": "medium",
+                "category": "error-handling",
+                "title": "No error handling around pipeline execution — single failure crashes entire workflow",
+                "description": "The `await pipeline(files, ...)` call on line 90 has no try/catch. If any individual agent call within the pipeline rejects (e.g., network timeout, rate limit, model error), the unhandled rejection propagates up and the entire workflow crashes. All partial results from other files that completed successfully are lost. This is especially problematic for large projects where reviewing dozens of files could take significant time.",
+                "line": 90,
+                "suggestion": "Wrap the pipeline call in try/catch, or add error handling within the stage function: `(file) => agent(...).catch(err => ({ file, bugs: [], notes: `analysis failed: ${err.message}` }))`. This ensures one failed review doesn't lose all other results."
+              },
+              {
+                "severity": "low",
+                "category": "boundary",
+                "title": "Nullish coalescing doesn't catch empty string for `dir` argument",
+                "description": "Line 67 uses `args?.dir ?? \".\"` which only falls back to \".\" when `args.dir` is null or undefined. If a user passes `dir: \"\"` (empty string), it won't be caught and the agent will receive an empty string as the directory to search, likely causing the find/fd command to fail or search an unintended location.",
+                "line": 67,
+                "suggestion": "Use logical OR instead: `const dir = args?.dir || \".\"` to also catch empty strings, or add an explicit check: `const dir = args?.dir?.trim() || \".\"`"
+              },
+              {
+                "severity": "low",
+                "category": "type-safety",
+                "title": "No validation that discovery array contains only strings",
+                "description": "Line 84 checks `Array.isArray(discovery)` but doesn't validate that each element is a string. If the agent's schema parsing is lenient or returns malformed data (e.g., objects, numbers, or null entries in the array), these would be interpolated into prompts as `[object Object]`, `null`, etc., causing downstream agent calls to fail or produce nonsensical results.",
+                "line": 84,
+                "suggestion": "Filter the array to only valid strings: `const files = Array.isArray(discovery) ? discovery.filter(f => typeof f === 'string' && f.length > 0) : [];`"
+              },
+              {
+                "severity": "low",
+                "category": "code-smell",
+                "title": "Schema requires `file` property from agent but it's overwritten/redundant in mapping",
+                "description": "Line 120 does `{ file, ...result }` where both the local `file` variable and `result.file` (required by BUG_ANALYSIS_SCHEMA) represent the file path. The spread of `result` overwrites the leading `file` property. If the agent normalizes or alters the path (e.g., adds `./` prefix, resolves symlinks), the resulting object will have the agent's version rather than the canonical path from discovery. This creates potential inconsistency.",
+                "line": 120,
+                "suggestion": "Either remove `file` from the schema (since you already know it from the mapping index), or explicitly use the canonical path: `return { ...result, file }` to ensure the discovery path always wins."
+              }
+            ],
+            "overall_quality": "acceptable",
+            "notes": "The workflow is well-structured and follows the pipeline pattern correctly. The schema is well-defined, the phase separation is clear, and edge cases like empty discovery results and null/non-object pipeline results are handled. The main gap is the lack of fault tolerance — a single failing agent call can crash the entire multi-file review. For a workflow that may process many files over extended time, this is a meaningful robustness concern. The code is otherwise clean and readable."
+          },
+          {
+            "file": ".pi/workflows/test-plan.js",
+            "bugs": [
+              {
+                "severity": "medium",
+                "category": "error-handling",
+                "title": "No error handling around pipeline call - unhandled agent failures crash workflow",
+                "description": "The `pipeline` call on line 92 has no try/catch. If any individual agent call within the pipeline throws an unrecoverable error (e.g., network timeout, rate limit, context overflow), and the pipeline framework propagates that error, the entire workflow crashes without producing any partial results. The code at line 137 shows awareness of potential per-item failures (null check on results[i]), but if the pipeline itself throws rather than returning partial results, no recovery is possible.",
+                "line": 92,
+                "suggestion": "Wrap the pipeline call in try/catch and either return a partial result or a meaningful error message: `let results; try { results = await pipeline(files, ...); } catch (e) { return { error: `Analysis failed: ${e.message}`, partial: [] }; }`"
+              },
+              {
+                "severity": "medium",
+                "category": "null-reference",
+                "title": "No guard on `results` being array before indexed access",
+                "description": "On line 137, the code does `const result = results[i]` inside a `files.map()`. If `pipeline` returns something other than an array (e.g., undefined, null, or an object), this would throw a TypeError: 'Cannot read properties of undefined'. While the per-element null check on line 138 handles individual missing results, there's no check that `results` itself is a valid array with the expected length.",
+                "line": 137,
+                "suggestion": "Add a guard before the map: `const safeResults = Array.isArray(results) ? results : [];` and then use `safeResults[i]` instead of `results[i]`."
+              },
+              {
+                "severity": "low",
+                "category": "logic-error",
+                "title": "Default fallback priority 'medium' for failed analyses inflates medium count",
+                "description": "On line 139, when a file's analysis fails (result is null/invalid), it defaults to priority 'medium'. This means failed analyses get grouped with legitimately medium-priority files, inflating the medium count in the summary and potentially misleading users about actual test needs. Files that failed analysis should likely be flagged distinctly.",
+                "line": 139,
+                "suggestion": "Use a distinct priority like 'unknown' or add an `analysis_failed: true` flag, and handle it separately in grouping/reporting. Alternatively, default to 'high' since unknown files should be conservatively prioritized."
+              },
+              {
+                "severity": "low",
+                "category": "code-smell",
+                "title": "FILE_ANALYSIS_SCHEMA 'file' field in schema is redundant with pipeline mapping",
+                "description": "The schema requires the agent to return a 'file' field (line 17), but at line 141 the code does `return { file, ...result }` which overwrites whatever the agent returned for 'file' with the actual file path from the pipeline iteration. The agent-returned 'file' value is never used and could be incorrect, wasting tokens in the agent response.",
+                "line": 17,
+                "suggestion": "Remove 'file' from the schema's required fields and properties, since it's always overwritten by the mapping code."
+              }
+            ],
+            "overall_quality": "acceptable",
+            "notes": "The workflow is well-structured with clear phases and good defensive coding for the discovery step (Array.isArray check). The schema definition is thorough. Main concerns are around error resilience in the pipeline stage and the assumption that `results` will always be a properly-aligned array. The `step` function usage is consistent with the sibling workflow file (bug-review.js) and appears to be part of the phases API, so it's likely provided at runtime when meta.phases is declared."
+          },
+          {
+            "file": "src/index.ts",
+            "bugs": [
+              {
+                "severity": "high",
+                "category": "race-condition",
+                "title": "Cancel action doesn't stop running workflow and status gets overwritten",
+                "description": "When 'cancel' is invoked, it loads the run from storage, marks it as 'cancelled', and saves it. However, the actual workflow execution (from a prior 'start' call) is still running in memory via `await mod.default(runtime)`. When that execution finishes (lines 149-160), it overwrites `run.status` to 'completed' or 'failed' and calls saveRun again, effectively undoing the cancellation. The in-memory `run` object from the start call is separate from the one loaded by cancel. Additionally, no abort signal is passed to the runtime, so the workflow function has no way to know it should stop.",
+                "line": 107,
+                "suggestion": "Pass the AbortSignal (currently `_signal`) into the runtime context so workflows can check for cancellation. Before overwriting the status in the completion/error handlers, reload the run from store and check if it's been cancelled. Alternatively, maintain a map of active AbortControllers keyed by runId and abort the controller when cancel is called."
+              },
+              {
+                "severity": "medium",
+                "category": "type-safety",
+                "title": "JSON.parse result unsafely typed as Record<string, unknown>",
+                "description": "On line 120, `JSON.parse(params.args)` is assigned to `parsedArgs` which is typed as `Record<string, unknown> | undefined`. However, JSON.parse can return any valid JSON value: a string, number, boolean, null, or array. If the user passes args like `\"123\"`, `\"null\"`, or `\"[1,2,3]\"`, parsedArgs will not be a Record and downstream code consuming it as an object will behave incorrectly or crash.",
+                "line": 120,
+                "suggestion": "Add a type check after parsing: `const parsed = JSON.parse(params.args); if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) { return error response; } parsedArgs = parsed;`"
+              },
+              {
+                "severity": "medium",
+                "category": "error-handling",
+                "title": "Fire-and-forget saveRun silently swallows persistence errors",
+                "description": "On line 140, `saveRun(cwd, run).catch(() => {})` discards any error from saving intermediate workflow state. If the filesystem is full, permissions change, or the path becomes invalid, all step progress updates are silently lost with no indication to the user or any logging. This makes debugging workflow state issues very difficult.",
+                "line": 140,
+                "suggestion": "At minimum, log the error: `.catch((err) => ctx.ui.notify?.('Failed to persist workflow step: ' + err.message, 'warn'))` or use a debounced save with retry logic."
+              },
+              {
+                "severity": "low",
+                "category": "code-smell",
+                "title": "Redundant dynamic import of mkdir that shadows module-level import",
+                "description": "Line 49 dynamically imports `mkdir` from 'fs/promises' with `const { mkdir } = await import('fs/promises')`, but `mkdir` is already imported at the module level on line 4. The dynamic import is unnecessary and creates confusion about which `mkdir` is being used where.",
+                "line": 49,
+                "suggestion": "Remove the dynamic import on line 49 and use the module-level `mkdir` that's already imported: `await mkdir(getProjectWorkflowDir(ctx.cwd), { recursive: true }).catch(() => {});`"
+              }
+            ],
+            "overall_quality": "acceptable",
+            "notes": "The code is generally well-structured with good error handling in the main execution path. The primary concern is the cancel mechanism which is fundamentally broken due to the race between the cancel action updating stored state and the running workflow overwriting it upon completion. The type safety issue with JSON.parse is a common pitfall. The fire-and-forget saves are a pragmatic choice for non-critical intermediate state, but the complete silence on failure makes debugging harder."
+          },
+          {
+            "file": "src/loader.ts",
+            "bugs": [
+              {
+                "severity": "critical",
+                "category": "security",
+                "title": "Path traversal in loadWorkflow allows arbitrary file import",
+                "description": "The `name` parameter in `loadWorkflow` is used directly in `join(dir, \\`${name}${ext}\\`)` without any sanitization. If `name` contains path traversal sequences like `../../`, `path.join` will resolve them, allowing an attacker to import (and execute) arbitrary JavaScript/TypeScript files outside the intended workflow directories. Since `import()` executes the module, this is effectively arbitrary code execution if the name is user-controlled.",
+                "line": 95,
+                "suggestion": "Validate that `name` does not contain path separators or traversal sequences. For example: `if (name.includes('/') || name.includes('\\\\') || name.includes('..')) return null;` at the start of the function. Alternatively, after computing `path`, verify it starts with `dir + path.sep`."
+              },
+              {
+                "severity": "high",
+                "category": "logic-error",
+                "title": "Early return null prevents checking other extensions and directories",
+                "description": "In `loadWorkflow`, when a module is successfully imported but `!mod.meta?.name` is true, the function immediately returns `null`. This prevents checking other file extensions in the same directory or other directories entirely. For example, if `foo.js` exists as a utility file (no meta) in a directory, the function will never find `foo.mjs` or `foo.ts` which might be the actual workflow, nor will it look in any subsequent directories.",
+                "line": 98,
+                "suggestion": "Replace `return null` with `continue` to keep searching other extensions/directories. If you want to stop searching once any file with that base name is found (regardless of validity), break out of both loops and return null, but at minimum try all extensions in the current directory first."
+              },
+              {
+                "severity": "medium",
+                "category": "type-safety",
+                "title": "Unsafe cast of imported module to WorkflowModule",
+                "description": "The module is cast to `WorkflowModule` with only a check for `mod.meta?.name`. The module may not have a default export function or other required properties of the WorkflowModule interface. Callers relying on the full WorkflowModule shape (e.g., calling `mod.default(...)`) could crash at runtime if the module doesn't conform.",
+                "line": 99,
+                "suggestion": "Add validation for the required shape before casting, e.g., check that `typeof mod.default === 'function'` and that `mod.meta` has the expected structure. Return null if validation fails."
+              },
+              {
+                "severity": "low",
+                "category": "performance",
+                "title": "Redundant double call to parse(f) in listDir",
+                "description": "In the `listDir` function, `parse(f)` is called once in the `.filter()` callback and again in the `.map()` callback for the same file. While not a major performance issue, it's unnecessary work that could be avoided.",
+                "line": 68,
+                "suggestion": "Use a single pass with `.flatMap()` or `.reduce()`, or chain `.map(f => ({ parsed: parse(f), f }))` first, then filter and map from the pre-parsed result."
+              }
+            ],
+            "overall_quality": "concerning",
+            "notes": "The file has a critical path traversal vulnerability that allows importing arbitrary files when `name` is user-controlled, and a significant logic error that causes workflows to be unfindable in certain valid configurations. The directory traversal logic in `discoverProjectDirs` and `findGitRoot` is well-structured, but the core `loadWorkflow` function has both a security issue and incorrect early-exit behavior that undermine its reliability."
+          },
+          {
+            "file": "src/runtime.ts",
+            "bugs": [
+              {
+                "severity": "medium",
+                "category": "resource-leak",
+                "title": "Session not disposed when session.prompt() throws",
+                "description": "In the `agent` function, if `session.prompt()` throws an exception (e.g., network error, API error), the control flow jumps directly to the outer `catch` block at line 138, bypassing `session.dispose()` at lines 110 and 131. This means the agent session's resources (event listeners, connections, etc.) are never cleaned up. This affects both the schema path and the non-schema path.",
+                "line": 106,
+                "suggestion": "Wrap each session usage in a try/finally block to ensure disposal:\n\n```typescript\nconst { session } = await createAgentSession({ ... });\ntry {\n  await session.prompt(schemaPrompt);\n} finally {\n  session.dispose();\n}\n```\n\nDo this for both the schema and non-schema code paths."
+              },
+              {
+                "severity": "medium",
+                "category": "concurrency",
+                "title": "Unbounded concurrency in pipeline stages",
+                "description": "The `pipeline` function processes ALL items through a stage concurrently via `Promise.all(tasks)` with no concurrency limit. If a workflow passes a large array of items (e.g., 100 files to analyze), all of them will be sent to the agent API simultaneously, potentially overwhelming the API rate limit, causing OOM, or triggering throttling. This is especially problematic since each `stage` could internally call `agent()` which creates sessions.",
+                "line": 157,
+                "suggestion": "Add a concurrency limit using a semaphore pattern or batching, or accept a `concurrency` option:\n\n```typescript\nconst pipeline: PipelineFn = async (items, ...stages) => {\n  // Process in batches of e.g. 4\n  const concurrency = 4;\n  // Use p-limit or manual batching\n};\n```"
+              },
+              {
+                "severity": "low",
+                "category": "logic-error",
+                "title": "responseText captures only last text block, losing earlier text",
+                "description": "In the non-schema path, the `subscribe` handler overwrites `responseText` for each text block (`responseText = block.text`). If an assistant message contains multiple text content blocks (rare but possible), only the last one is returned. More importantly, if the agent does multi-turn interaction (using tools), only the final message's text is captured, which may be empty or minimal if the model's last turn was just a tool call.",
+                "line": 127,
+                "suggestion": "Append text blocks instead of overwriting, or accumulate across messages:\n\n```typescript\nfor (const block of msg.content) {\n  if (block.type === \"text\") {\n    responseText += block.text;\n  }\n}\n```\n\nOr if you truly only want the last message's text, document this clearly."
+              },
+              {
+                "severity": "low",
+                "category": "error-handling",
+                "title": "Agent errors are silently swallowed, returning undefined indistinguishable from no-result",
+                "description": "The `agent` function catches all errors and returns `undefined`. The caller cannot distinguish between 'the model intentionally returned nothing' and 'a critical error occurred'. While the error is recorded on the step object via the `onStep` callback, callers that only check the return value will silently proceed with `undefined`, potentially leading to downstream failures in workflows that depend on the result.",
+                "line": 138,
+                "suggestion": "Consider either re-throwing the error (with the step still updated), returning a discriminated result type like `{ ok: true, value } | { ok: false, error }`, or at minimum logging via `log()` before returning undefined:\n\n```typescript\n} catch (err: any) {\n  step.status = \"failed\";\n  step.completedAt = Date.now();\n  step.error = err?.message ?? String(err);\n  onStep(step);\n  log(`Agent step \"${step.name}\" failed: ${step.error}`);\n  return undefined;\n}\n```"
+              },
+              {
+                "severity": "low",
+                "category": "logic-error",
+                "title": "Pipeline passes undefined to subsequent stages after a stage failure",
+                "description": "When a pipeline stage throws for a particular item, the result is set to `{ _item: item, _result: undefined }`. The next stage then receives `undefined` as its `input` argument. If the next stage doesn't handle `undefined` input gracefully, it will throw (which is caught, producing another `undefined`), causing a cascade of silent failures across all remaining stages for that item.",
+                "line": 152,
+                "suggestion": "Consider filtering out failed items from subsequent stages, or providing a sentinel value that stages can check:\n\n```typescript\ncatch (err) {\n  log(`Pipeline stage failed for item ${index}: ${err}`);\n  return { _item: item, _result: undefined, _failed: true };\n}\n// Then filter before next stage:\nconst activeResults = results.filter(r => !r._failed);\n```"
+              }
+            ],
+            "overall_quality": "acceptable",
+            "notes": "The code is well-structured with clear separation of concerns. The createEmitResultTool pattern for structured output is clever and well-documented. The main concern is the resource leak from missing try/finally around session usage, which could accumulate in long-running workflows. The pipeline's unbounded concurrency is a practical concern for production use. Type safety is reasonable given the dynamic nature of the schema handling, though the `as any` casts could be tightened."
+          },
+          {
+            "file": "src/store.ts",
+            "bugs": [
+              {
+                "severity": "medium",
+                "category": "security",
+                "title": "Path traversal via runId parameter",
+                "description": "The `runPath` function constructs a file path using `runId` without sanitization: `join(runsDir(cwd), \\`${runId}.json\\`)`. If a malicious `runId` contains path traversal sequences like `../../etc/passwd`, the resulting path would escape the `.pi-workflows/.runs/` directory. In the current usage, new runs use `randomUUID()` (safe), but `loadRun` is called with user-supplied `params.run_id` from tool parameters (in index.ts lines 108, 119). An attacker providing a crafted `run_id` could read arbitrary JSON files on the filesystem via `loadRun`.",
+                "line": 12,
+                "suggestion": "Validate that `runId` contains no path separators or '..' sequences. For example: `if (runId.includes('/') || runId.includes('\\\\') || runId.includes('..')) throw new Error('Invalid runId');` Or use `path.basename(runId)` to strip directory components before constructing the path."
+              },
+              {
+                "severity": "low",
+                "category": "error-handling",
+                "title": "loadRun swallows all errors including corruption/permission issues",
+                "description": "The catch block in `loadRun` returns `null` for any error, including JSON parse failures (corrupted files), permission denied errors, or other unexpected I/O errors. This means corrupted run files are silently treated as non-existent, making debugging difficult. For ENOENT (file not found) returning null is appropriate, but other errors should likely propagate.",
+                "line": 29,
+                "suggestion": "Catch the error, check if it's an ENOENT/file-not-found error and return null only in that case. For other errors (parse failures, permission errors), either re-throw or log a warning: `catch (err: any) { if (err?.code === 'ENOENT') return null; throw err; }`"
+              },
+              {
+                "severity": "low",
+                "category": "type-safety",
+                "title": "Unsafe type assertion on parsed JSON",
+                "description": "`JSON.parse(data) as WorkflowRun` performs no runtime validation. If a run file is manually edited, partially written (due to a crash during `saveRun`), or comes from an older schema version, the returned object may not actually conform to `WorkflowRun`. Callers will access properties like `run.steps`, `run.status`, `run.updatedAt` which could be undefined.",
+                "line": 27,
+                "suggestion": "Add minimal runtime validation before returning, e.g. check that the parsed object has the required fields (`runId`, `status`, `updatedAt`, `steps` array). Consider using a schema validation library like zod, or at minimum: `const parsed = JSON.parse(data); if (!parsed?.runId || !parsed?.status) return null;`"
+              }
+            ],
+            "overall_quality": "acceptable",
+            "notes": "The file is small, focused, and well-structured. The main concern is the lack of runId sanitization which creates a path traversal risk when called with user-supplied input. The error handling strategy of returning null/empty-array is reasonable for a simple file-based store but could benefit from distinguishing \"not found\" from \"corrupted/inaccessible\". The code is otherwise clean with proper use of async/await, recursive directory creation, and type predicates in the filter."
+          },
+          {
+            "file": "src/types.ts",
+            "bugs": [
+              {
+                "severity": "low",
+                "category": "code-smell",
+                "title": "Redundant 'step' property in WorkflowRuntime",
+                "description": "WorkflowRuntime extends PipelineContext which already declares 'step: StepFn'. Redeclaring it in WorkflowRuntime (line 36) is redundant. While not a runtime bug (since the types are identical), it creates a maintenance risk: if someone changes the type in one place but not the other, it could cause confusing type errors.",
+                "line": 36,
+                "suggestion": "Remove the redundant 'step: StepFn;' from WorkflowRuntime since it's already inherited from PipelineContext."
+              },
+              {
+                "severity": "low",
+                "category": "type-safety",
+                "title": "PipelineStageFn 'item' parameter typed as 'any' loses type connection to pipeline input",
+                "description": "PipelineStageFn<TIn, TOut> declares the second parameter 'item' as 'any' instead of connecting it to the generic type T from PipelineFn's items array. This means implementers of pipeline stages get no type checking on the original item parameter, which can lead to runtime type errors that TypeScript won't catch.",
+                "line": 23,
+                "suggestion": "Add a third generic parameter to PipelineStageFn: `PipelineStageFn<TIn, TOut, TItem = unknown>` with signature `(input: TIn, item: TItem, index: number)`, or at minimum use 'unknown' instead of 'any' to force explicit type narrowing."
+              },
+              {
+                "severity": "low",
+                "category": "type-safety",
+                "title": "PipelineFn return type is Promise<any[]> defeating downstream type safety",
+                "description": "The PipelineFn type returns Promise<any[]>, which means any code consuming the pipeline result loses all type safety. Combined with the PipelineStageFn<any, any>[] rest parameter, the entire pipeline is effectively untyped at the boundary.",
+                "line": 28,
+                "suggestion": "Consider returning Promise<unknown[]> to force consumers to narrow the type, or use more sophisticated generics to infer the output type from the last stage."
+              }
+            ],
+            "overall_quality": "acceptable",
+            "notes": "This is a pure type definitions file with no runtime code, so the risk of actual bugs is inherently low. The types are well-structured and cover the workflow domain model comprehensively. The main concerns are around excessive use of 'any' which weakens type safety guarantees, and one redundant property declaration. The design pattern of PipelineStageFn receiving both the previous stage's output and the original item is a reasonable architectural choice, though the naming could be clearer."
+          }
+        ]
+      }
+    }
+  ],
+  "result": {
+    "summary": {
+      "total_files_reviewed": 7,
+      "files_with_bugs": 7,
+      "clean_files": 0,
+      "total_bugs_found": 27,
+      "by_severity": {
+        "critical": 1,
+        "high": 2,
+        "medium": 9,
+        "low": 15
+      },
+      "by_category": {
+        "type-safety": 6,
+        "error-handling": 5,
+        "code-smell": 4,
+        "logic-error": 4,
+        "security": 2,
+        "boundary": 1,
+        "null-reference": 1,
+        "race-condition": 1,
+        "performance": 1,
+        "resource-leak": 1,
+        "concurrency": 1
+      }
+    },
+    "critical": [
+      {
+        "severity": "critical",
+        "category": "security",
+        "title": "Path traversal in loadWorkflow allows arbitrary file import",
+        "description": "The `name` parameter in `loadWorkflow` is used directly in `join(dir, \\`${name}${ext}\\`)` without any sanitization. If `name` contains path traversal sequences like `../../`, `path.join` will resolve them, allowing an attacker to import (and execute) arbitrary JavaScript/TypeScript files outside the intended workflow directories. Since `import()` executes the module, this is effectively arbitrary code execution if the name is user-controlled.",
+        "line": 95,
+        "suggestion": "Validate that `name` does not contain path separators or traversal sequences. For example: `if (name.includes('/') || name.includes('\\\\') || name.includes('..')) return null;` at the start of the function. Alternatively, after computing `path`, verify it starts with `dir + path.sep`.",
+        "file": "src/loader.ts"
+      }
+    ],
+    "high": [
+      {
+        "severity": "high",
+        "category": "race-condition",
+        "title": "Cancel action doesn't stop running workflow and status gets overwritten",
+        "description": "When 'cancel' is invoked, it loads the run from storage, marks it as 'cancelled', and saves it. However, the actual workflow execution (from a prior 'start' call) is still running in memory via `await mod.default(runtime)`. When that execution finishes (lines 149-160), it overwrites `run.status` to 'completed' or 'failed' and calls saveRun again, effectively undoing the cancellation. The in-memory `run` object from the start call is separate from the one loaded by cancel. Additionally, no abort signal is passed to the runtime, so the workflow function has no way to know it should stop.",
+        "line": 107,
+        "suggestion": "Pass the AbortSignal (currently `_signal`) into the runtime context so workflows can check for cancellation. Before overwriting the status in the completion/error handlers, reload the run from store and check if it's been cancelled. Alternatively, maintain a map of active AbortControllers keyed by runId and abort the controller when cancel is called.",
+        "file": "src/index.ts"
+      },
+      {
+        "severity": "high",
+        "category": "logic-error",
+        "title": "Early return null prevents checking other extensions and directories",
+        "description": "In `loadWorkflow`, when a module is successfully imported but `!mod.meta?.name` is true, the function immediately returns `null`. This prevents checking other file extensions in the same directory or other directories entirely. For example, if `foo.js` exists as a utility file (no meta) in a directory, the function will never find `foo.mjs` or `foo.ts` which might be the actual workflow, nor will it look in any subsequent directories.",
+        "line": 98,
+        "suggestion": "Replace `return null` with `continue` to keep searching other extensions/directories. If you want to stop searching once any file with that base name is found (regardless of validity), break out of both loops and return null, but at minimum try all extensions in the current directory first.",
+        "file": "src/loader.ts"
+      }
+    ],
+    "medium": [
+      {
+        "severity": "medium",
+        "category": "error-handling",
+        "title": "No error handling around pipeline execution — single failure crashes entire workflow",
+        "description": "The `await pipeline(files, ...)` call on line 90 has no try/catch. If any individual agent call within the pipeline rejects (e.g., network timeout, rate limit, model error), the unhandled rejection propagates up and the entire workflow crashes. All partial results from other files that completed successfully are lost. This is especially problematic for large projects where reviewing dozens of files could take significant time.",
+        "line": 90,
+        "suggestion": "Wrap the pipeline call in try/catch, or add error handling within the stage function: `(file) => agent(...).catch(err => ({ file, bugs: [], notes: `analysis failed: ${err.message}` }))`. This ensures one failed review doesn't lose all other results.",
+        "file": ".pi/workflows/bug-review.js"
+      },
+      {
+        "severity": "medium",
+        "category": "error-handling",
+        "title": "No error handling around pipeline call - unhandled agent failures crash workflow",
+        "description": "The `pipeline` call on line 92 has no try/catch. If any individual agent call within the pipeline throws an unrecoverable error (e.g., network timeout, rate limit, context overflow), and the pipeline framework propagates that error, the entire workflow crashes without producing any partial results. The code at line 137 shows awareness of potential per-item failures (null check on results[i]), but if the pipeline itself throws rather than returning partial results, no recovery is possible.",
+        "line": 92,
+        "suggestion": "Wrap the pipeline call in try/catch and either return a partial result or a meaningful error message: `let results; try { results = await pipeline(files, ...); } catch (e) { return { error: `Analysis failed: ${e.message}`, partial: [] }; }`",
+        "file": ".pi/workflows/test-plan.js"
+      },
+      {
+        "severity": "medium",
+        "category": "null-reference",
+        "title": "No guard on `results` being array before indexed access",
+        "description": "On line 137, the code does `const result = results[i]` inside a `files.map()`. If `pipeline` returns something other than an array (e.g., undefined, null, or an object), this would throw a TypeError: 'Cannot read properties of undefined'. While the per-element null check on line 138 handles individual missing results, there's no check that `results` itself is a valid array with the expected length.",
+        "line": 137,
+        "suggestion": "Add a guard before the map: `const safeResults = Array.isArray(results) ? results : [];` and then use `safeResults[i]` instead of `results[i]`.",
+        "file": ".pi/workflows/test-plan.js"
+      },
+      {
+        "severity": "medium",
+        "category": "type-safety",
+        "title": "JSON.parse result unsafely typed as Record<string, unknown>",
+        "description": "On line 120, `JSON.parse(params.args)` is assigned to `parsedArgs` which is typed as `Record<string, unknown> | undefined`. However, JSON.parse can return any valid JSON value: a string, number, boolean, null, or array. If the user passes args like `\"123\"`, `\"null\"`, or `\"[1,2,3]\"`, parsedArgs will not be a Record and downstream code consuming it as an object will behave incorrectly or crash.",
+        "line": 120,
+        "suggestion": "Add a type check after parsing: `const parsed = JSON.parse(params.args); if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) { return error response; } parsedArgs = parsed;`",
+        "file": "src/index.ts"
+      },
+      {
+        "severity": "medium",
+        "category": "error-handling",
+        "title": "Fire-and-forget saveRun silently swallows persistence errors",
+        "description": "On line 140, `saveRun(cwd, run).catch(() => {})` discards any error from saving intermediate workflow state. If the filesystem is full, permissions change, or the path becomes invalid, all step progress updates are silently lost with no indication to the user or any logging. This makes debugging workflow state issues very difficult.",
+        "line": 140,
+        "suggestion": "At minimum, log the error: `.catch((err) => ctx.ui.notify?.('Failed to persist workflow step: ' + err.message, 'warn'))` or use a debounced save with retry logic.",
+        "file": "src/index.ts"
+      },
+      {
+        "severity": "medium",
+        "category": "type-safety",
+        "title": "Unsafe cast of imported module to WorkflowModule",
+        "description": "The module is cast to `WorkflowModule` with only a check for `mod.meta?.name`. The module may not have a default export function or other required properties of the WorkflowModule interface. Callers relying on the full WorkflowModule shape (e.g., calling `mod.default(...)`) could crash at runtime if the module doesn't conform.",
+        "line": 99,
+        "suggestion": "Add validation for the required shape before casting, e.g., check that `typeof mod.default === 'function'` and that `mod.meta` has the expected structure. Return null if validation fails.",
+        "file": "src/loader.ts"
+      },
+      {
+        "severity": "medium",
+        "category": "resource-leak",
+        "title": "Session not disposed when session.prompt() throws",
+        "description": "In the `agent` function, if `session.prompt()` throws an exception (e.g., network error, API error), the control flow jumps directly to the outer `catch` block at line 138, bypassing `session.dispose()` at lines 110 and 131. This means the agent session's resources (event listeners, connections, etc.) are never cleaned up. This affects both the schema path and the non-schema path.",
+        "line": 106,
+        "suggestion": "Wrap each session usage in a try/finally block to ensure disposal:\n\n```typescript\nconst { session } = await createAgentSession({ ... });\ntry {\n  await session.prompt(schemaPrompt);\n} finally {\n  session.dispose();\n}\n```\n\nDo this for both the schema and non-schema code paths.",
+        "file": "src/runtime.ts"
+      },
+      {
+        "severity": "medium",
+        "category": "concurrency",
+        "title": "Unbounded concurrency in pipeline stages",
+        "description": "The `pipeline` function processes ALL items through a stage concurrently via `Promise.all(tasks)` with no concurrency limit. If a workflow passes a large array of items (e.g., 100 files to analyze), all of them will be sent to the agent API simultaneously, potentially overwhelming the API rate limit, causing OOM, or triggering throttling. This is especially problematic since each `stage` could internally call `agent()` which creates sessions.",
+        "line": 157,
+        "suggestion": "Add a concurrency limit using a semaphore pattern or batching, or accept a `concurrency` option:\n\n```typescript\nconst pipeline: PipelineFn = async (items, ...stages) => {\n  // Process in batches of e.g. 4\n  const concurrency = 4;\n  // Use p-limit or manual batching\n};\n```",
+        "file": "src/runtime.ts"
+      },
+      {
+        "severity": "medium",
+        "category": "security",
+        "title": "Path traversal via runId parameter",
+        "description": "The `runPath` function constructs a file path using `runId` without sanitization: `join(runsDir(cwd), \\`${runId}.json\\`)`. If a malicious `runId` contains path traversal sequences like `../../etc/passwd`, the resulting path would escape the `.pi-workflows/.runs/` directory. In the current usage, new runs use `randomUUID()` (safe), but `loadRun` is called with user-supplied `params.run_id` from tool parameters (in index.ts lines 108, 119). An attacker providing a crafted `run_id` could read arbitrary JSON files on the filesystem via `loadRun`.",
+        "line": 12,
+        "suggestion": "Validate that `runId` contains no path separators or '..' sequences. For example: `if (runId.includes('/') || runId.includes('\\\\') || runId.includes('..')) throw new Error('Invalid runId');` Or use `path.basename(runId)` to strip directory components before constructing the path.",
+        "file": "src/store.ts"
+      }
+    ],
+    "low": [
+      {
+        "severity": "low",
+        "category": "boundary",
+        "title": "Nullish coalescing doesn't catch empty string for `dir` argument",
+        "description": "Line 67 uses `args?.dir ?? \".\"` which only falls back to \".\" when `args.dir` is null or undefined. If a user passes `dir: \"\"` (empty string), it won't be caught and the agent will receive an empty string as the directory to search, likely causing the find/fd command to fail or search an unintended location.",
+        "line": 67,
+        "suggestion": "Use logical OR instead: `const dir = args?.dir || \".\"` to also catch empty strings, or add an explicit check: `const dir = args?.dir?.trim() || \".\"`",
+        "file": ".pi/workflows/bug-review.js"
+      },
+      {
+        "severity": "low",
+        "category": "type-safety",
+        "title": "No validation that discovery array contains only strings",
+        "description": "Line 84 checks `Array.isArray(discovery)` but doesn't validate that each element is a string. If the agent's schema parsing is lenient or returns malformed data (e.g., objects, numbers, or null entries in the array), these would be interpolated into prompts as `[object Object]`, `null`, etc., causing downstream agent calls to fail or produce nonsensical results.",
+        "line": 84,
+        "suggestion": "Filter the array to only valid strings: `const files = Array.isArray(discovery) ? discovery.filter(f => typeof f === 'string' && f.length > 0) : [];`",
+        "file": ".pi/workflows/bug-review.js"
+      },
+      {
+        "severity": "low",
+        "category": "code-smell",
+        "title": "Schema requires `file` property from agent but it's overwritten/redundant in mapping",
+        "description": "Line 120 does `{ file, ...result }` where both the local `file` variable and `result.file` (required by BUG_ANALYSIS_SCHEMA) represent the file path. The spread of `result` overwrites the leading `file` property. If the agent normalizes or alters the path (e.g., adds `./` prefix, resolves symlinks), the resulting object will have the agent's version rather than the canonical path from discovery. This creates potential inconsistency.",
+        "line": 120,
+        "suggestion": "Either remove `file` from the schema (since you already know it from the mapping index), or explicitly use the canonical path: `return { ...result, file }` to ensure the discovery path always wins.",
+        "file": ".pi/workflows/bug-review.js"
+      },
+      {
+        "severity": "low",
+        "category": "logic-error",
+        "title": "Default fallback priority 'medium' for failed analyses inflates medium count",
+        "description": "On line 139, when a file's analysis fails (result is null/invalid), it defaults to priority 'medium'. This means failed analyses get grouped with legitimately medium-priority files, inflating the medium count in the summary and potentially misleading users about actual test needs. Files that failed analysis should likely be flagged distinctly.",
+        "line": 139,
+        "suggestion": "Use a distinct priority like 'unknown' or add an `analysis_failed: true` flag, and handle it separately in grouping/reporting. Alternatively, default to 'high' since unknown files should be conservatively prioritized.",
+        "file": ".pi/workflows/test-plan.js"
+      },
+      {
+        "severity": "low",
+        "category": "code-smell",
+        "title": "FILE_ANALYSIS_SCHEMA 'file' field in schema is redundant with pipeline mapping",
+        "description": "The schema requires the agent to return a 'file' field (line 17), but at line 141 the code does `return { file, ...result }` which overwrites whatever the agent returned for 'file' with the actual file path from the pipeline iteration. The agent-returned 'file' value is never used and could be incorrect, wasting tokens in the agent response.",
+        "line": 17,
+        "suggestion": "Remove 'file' from the schema's required fields and properties, since it's always overwritten by the mapping code.",
+        "file": ".pi/workflows/test-plan.js"
+      },
+      {
+        "severity": "low",
+        "category": "code-smell",
+        "title": "Redundant dynamic import of mkdir that shadows module-level import",
+        "description": "Line 49 dynamically imports `mkdir` from 'fs/promises' with `const { mkdir } = await import('fs/promises')`, but `mkdir` is already imported at the module level on line 4. The dynamic import is unnecessary and creates confusion about which `mkdir` is being used where.",
+        "line": 49,
+        "suggestion": "Remove the dynamic import on line 49 and use the module-level `mkdir` that's already imported: `await mkdir(getProjectWorkflowDir(ctx.cwd), { recursive: true }).catch(() => {});`",
+        "file": "src/index.ts"
+      },
+      {
+        "severity": "low",
+        "category": "performance",
+        "title": "Redundant double call to parse(f) in listDir",
+        "description": "In the `listDir` function, `parse(f)` is called once in the `.filter()` callback and again in the `.map()` callback for the same file. While not a major performance issue, it's unnecessary work that could be avoided.",
+        "line": 68,
+        "suggestion": "Use a single pass with `.flatMap()` or `.reduce()`, or chain `.map(f => ({ parsed: parse(f), f }))` first, then filter and map from the pre-parsed result.",
+        "file": "src/loader.ts"
+      },
+      {
+        "severity": "low",
+        "category": "logic-error",
+        "title": "responseText captures only last text block, losing earlier text",
+        "description": "In the non-schema path, the `subscribe` handler overwrites `responseText` for each text block (`responseText = block.text`). If an assistant message contains multiple text content blocks (rare but possible), only the last one is returned. More importantly, if the agent does multi-turn interaction (using tools), only the final message's text is captured, which may be empty or minimal if the model's last turn was just a tool call.",
+        "line": 127,
+        "suggestion": "Append text blocks instead of overwriting, or accumulate across messages:\n\n```typescript\nfor (const block of msg.content) {\n  if (block.type === \"text\") {\n    responseText += block.text;\n  }\n}\n```\n\nOr if you truly only want the last message's text, document this clearly.",
+        "file": "src/runtime.ts"
+      },
+      {
+        "severity": "low",
+        "category": "error-handling",
+        "title": "Agent errors are silently swallowed, returning undefined indistinguishable from no-result",
+        "description": "The `agent` function catches all errors and returns `undefined`. The caller cannot distinguish between 'the model intentionally returned nothing' and 'a critical error occurred'. While the error is recorded on the step object via the `onStep` callback, callers that only check the return value will silently proceed with `undefined`, potentially leading to downstream failures in workflows that depend on the result.",
+        "line": 138,
+        "suggestion": "Consider either re-throwing the error (with the step still updated), returning a discriminated result type like `{ ok: true, value } | { ok: false, error }`, or at minimum logging via `log()` before returning undefined:\n\n```typescript\n} catch (err: any) {\n  step.status = \"failed\";\n  step.completedAt = Date.now();\n  step.error = err?.message ?? String(err);\n  onStep(step);\n  log(`Agent step \"${step.name}\" failed: ${step.error}`);\n  return undefined;\n}\n```",
+        "file": "src/runtime.ts"
+      },
+      {
+        "severity": "low",
+        "category": "logic-error",
+        "title": "Pipeline passes undefined to subsequent stages after a stage failure",
+        "description": "When a pipeline stage throws for a particular item, the result is set to `{ _item: item, _result: undefined }`. The next stage then receives `undefined` as its `input` argument. If the next stage doesn't handle `undefined` input gracefully, it will throw (which is caught, producing another `undefined`), causing a cascade of silent failures across all remaining stages for that item.",
+        "line": 152,
+        "suggestion": "Consider filtering out failed items from subsequent stages, or providing a sentinel value that stages can check:\n\n```typescript\ncatch (err) {\n  log(`Pipeline stage failed for item ${index}: ${err}`);\n  return { _item: item, _result: undefined, _failed: true };\n}\n// Then filter before next stage:\nconst activeResults = results.filter(r => !r._failed);\n```",
+        "file": "src/runtime.ts"
+      },
+      {
+        "severity": "low",
+        "category": "error-handling",
+        "title": "loadRun swallows all errors including corruption/permission issues",
+        "description": "The catch block in `loadRun` returns `null` for any error, including JSON parse failures (corrupted files), permission denied errors, or other unexpected I/O errors. This means corrupted run files are silently treated as non-existent, making debugging difficult. For ENOENT (file not found) returning null is appropriate, but other errors should likely propagate.",
+        "line": 29,
+        "suggestion": "Catch the error, check if it's an ENOENT/file-not-found error and return null only in that case. For other errors (parse failures, permission errors), either re-throw or log a warning: `catch (err: any) { if (err?.code === 'ENOENT') return null; throw err; }`",
+        "file": "src/store.ts"
+      },
+      {
+        "severity": "low",
+        "category": "type-safety",
+        "title": "Unsafe type assertion on parsed JSON",
+        "description": "`JSON.parse(data) as WorkflowRun` performs no runtime validation. If a run file is manually edited, partially written (due to a crash during `saveRun`), or comes from an older schema version, the returned object may not actually conform to `WorkflowRun`. Callers will access properties like `run.steps`, `run.status`, `run.updatedAt` which could be undefined.",
+        "line": 27,
+        "suggestion": "Add minimal runtime validation before returning, e.g. check that the parsed object has the required fields (`runId`, `status`, `updatedAt`, `steps` array). Consider using a schema validation library like zod, or at minimum: `const parsed = JSON.parse(data); if (!parsed?.runId || !parsed?.status) return null;`",
+        "file": "src/store.ts"
+      },
+      {
+        "severity": "low",
+        "category": "code-smell",
+        "title": "Redundant 'step' property in WorkflowRuntime",
+        "description": "WorkflowRuntime extends PipelineContext which already declares 'step: StepFn'. Redeclaring it in WorkflowRuntime (line 36) is redundant. While not a runtime bug (since the types are identical), it creates a maintenance risk: if someone changes the type in one place but not the other, it could cause confusing type errors.",
+        "line": 36,
+        "suggestion": "Remove the redundant 'step: StepFn;' from WorkflowRuntime since it's already inherited from PipelineContext.",
+        "file": "src/types.ts"
+      },
+      {
+        "severity": "low",
+        "category": "type-safety",
+        "title": "PipelineStageFn 'item' parameter typed as 'any' loses type connection to pipeline input",
+        "description": "PipelineStageFn<TIn, TOut> declares the second parameter 'item' as 'any' instead of connecting it to the generic type T from PipelineFn's items array. This means implementers of pipeline stages get no type checking on the original item parameter, which can lead to runtime type errors that TypeScript won't catch.",
+        "line": 23,
+        "suggestion": "Add a third generic parameter to PipelineStageFn: `PipelineStageFn<TIn, TOut, TItem = unknown>` with signature `(input: TIn, item: TItem, index: number)`, or at minimum use 'unknown' instead of 'any' to force explicit type narrowing.",
+        "file": "src/types.ts"
+      },
+      {
+        "severity": "low",
+        "category": "type-safety",
+        "title": "PipelineFn return type is Promise<any[]> defeating downstream type safety",
+        "description": "The PipelineFn type returns Promise<any[]>, which means any code consuming the pipeline result loses all type safety. Combined with the PipelineStageFn<any, any>[] rest parameter, the entire pipeline is effectively untyped at the boundary.",
+        "line": 28,
+        "suggestion": "Consider returning Promise<unknown[]> to force consumers to narrow the type, or use more sophisticated generics to infer the output type from the last stage.",
+        "file": "src/types.ts"
+      }
+    ],
+    "files": [
+      {
+        "file": ".pi/workflows/bug-review.js",
+        "bugs": [
+          {
+            "severity": "medium",
+            "category": "error-handling",
+            "title": "No error handling around pipeline execution — single failure crashes entire workflow",
+            "description": "The `await pipeline(files, ...)` call on line 90 has no try/catch. If any individual agent call within the pipeline rejects (e.g., network timeout, rate limit, model error), the unhandled rejection propagates up and the entire workflow crashes. All partial results from other files that completed successfully are lost. This is especially problematic for large projects where reviewing dozens of files could take significant time.",
+            "line": 90,
+            "suggestion": "Wrap the pipeline call in try/catch, or add error handling within the stage function: `(file) => agent(...).catch(err => ({ file, bugs: [], notes: `analysis failed: ${err.message}` }))`. This ensures one failed review doesn't lose all other results."
+          },
+          {
+            "severity": "low",
+            "category": "boundary",
+            "title": "Nullish coalescing doesn't catch empty string for `dir` argument",
+            "description": "Line 67 uses `args?.dir ?? \".\"` which only falls back to \".\" when `args.dir` is null or undefined. If a user passes `dir: \"\"` (empty string), it won't be caught and the agent will receive an empty string as the directory to search, likely causing the find/fd command to fail or search an unintended location.",
+            "line": 67,
+            "suggestion": "Use logical OR instead: `const dir = args?.dir || \".\"` to also catch empty strings, or add an explicit check: `const dir = args?.dir?.trim() || \".\"`"
+          },
+          {
+            "severity": "low",
+            "category": "type-safety",
+            "title": "No validation that discovery array contains only strings",
+            "description": "Line 84 checks `Array.isArray(discovery)` but doesn't validate that each element is a string. If the agent's schema parsing is lenient or returns malformed data (e.g., objects, numbers, or null entries in the array), these would be interpolated into prompts as `[object Object]`, `null`, etc., causing downstream agent calls to fail or produce nonsensical results.",
+            "line": 84,
+            "suggestion": "Filter the array to only valid strings: `const files = Array.isArray(discovery) ? discovery.filter(f => typeof f === 'string' && f.length > 0) : [];`"
+          },
+          {
+            "severity": "low",
+            "category": "code-smell",
+            "title": "Schema requires `file` property from agent but it's overwritten/redundant in mapping",
+            "description": "Line 120 does `{ file, ...result }` where both the local `file` variable and `result.file` (required by BUG_ANALYSIS_SCHEMA) represent the file path. The spread of `result` overwrites the leading `file` property. If the agent normalizes or alters the path (e.g., adds `./` prefix, resolves symlinks), the resulting object will have the agent's version rather than the canonical path from discovery. This creates potential inconsistency.",
+            "line": 120,
+            "suggestion": "Either remove `file` from the schema (since you already know it from the mapping index), or explicitly use the canonical path: `return { ...result, file }` to ensure the discovery path always wins."
+          }
+        ],
+        "overall_quality": "acceptable",
+        "notes": "The workflow is well-structured and follows the pipeline pattern correctly. The schema is well-defined, the phase separation is clear, and edge cases like empty discovery results and null/non-object pipeline results are handled. The main gap is the lack of fault tolerance — a single failing agent call can crash the entire multi-file review. For a workflow that may process many files over extended time, this is a meaningful robustness concern. The code is otherwise clean and readable."
+      },
+      {
+        "file": ".pi/workflows/test-plan.js",
+        "bugs": [
+          {
+            "severity": "medium",
+            "category": "error-handling",
+            "title": "No error handling around pipeline call - unhandled agent failures crash workflow",
+            "description": "The `pipeline` call on line 92 has no try/catch. If any individual agent call within the pipeline throws an unrecoverable error (e.g., network timeout, rate limit, context overflow), and the pipeline framework propagates that error, the entire workflow crashes without producing any partial results. The code at line 137 shows awareness of potential per-item failures (null check on results[i]), but if the pipeline itself throws rather than returning partial results, no recovery is possible.",
+            "line": 92,
+            "suggestion": "Wrap the pipeline call in try/catch and either return a partial result or a meaningful error message: `let results; try { results = await pipeline(files, ...); } catch (e) { return { error: `Analysis failed: ${e.message}`, partial: [] }; }`"
+          },
+          {
+            "severity": "medium",
+            "category": "null-reference",
+            "title": "No guard on `results` being array before indexed access",
+            "description": "On line 137, the code does `const result = results[i]` inside a `files.map()`. If `pipeline` returns something other than an array (e.g., undefined, null, or an object), this would throw a TypeError: 'Cannot read properties of undefined'. While the per-element null check on line 138 handles individual missing results, there's no check that `results` itself is a valid array with the expected length.",
+            "line": 137,
+            "suggestion": "Add a guard before the map: `const safeResults = Array.isArray(results) ? results : [];` and then use `safeResults[i]` instead of `results[i]`."
+          },
+          {
+            "severity": "low",
+            "category": "logic-error",
+            "title": "Default fallback priority 'medium' for failed analyses inflates medium count",
+            "description": "On line 139, when a file's analysis fails (result is null/invalid), it defaults to priority 'medium'. This means failed analyses get grouped with legitimately medium-priority files, inflating the medium count in the summary and potentially misleading users about actual test needs. Files that failed analysis should likely be flagged distinctly.",
+            "line": 139,
+            "suggestion": "Use a distinct priority like 'unknown' or add an `analysis_failed: true` flag, and handle it separately in grouping/reporting. Alternatively, default to 'high' since unknown files should be conservatively prioritized."
+          },
+          {
+            "severity": "low",
+            "category": "code-smell",
+            "title": "FILE_ANALYSIS_SCHEMA 'file' field in schema is redundant with pipeline mapping",
+            "description": "The schema requires the agent to return a 'file' field (line 17), but at line 141 the code does `return { file, ...result }` which overwrites whatever the agent returned for 'file' with the actual file path from the pipeline iteration. The agent-returned 'file' value is never used and could be incorrect, wasting tokens in the agent response.",
+            "line": 17,
+            "suggestion": "Remove 'file' from the schema's required fields and properties, since it's always overwritten by the mapping code."
+          }
+        ],
+        "overall_quality": "acceptable",
+        "notes": "The workflow is well-structured with clear phases and good defensive coding for the discovery step (Array.isArray check). The schema definition is thorough. Main concerns are around error resilience in the pipeline stage and the assumption that `results` will always be a properly-aligned array. The `step` function usage is consistent with the sibling workflow file (bug-review.js) and appears to be part of the phases API, so it's likely provided at runtime when meta.phases is declared."
+      },
+      {
+        "file": "src/index.ts",
+        "bugs": [
+          {
+            "severity": "high",
+            "category": "race-condition",
+            "title": "Cancel action doesn't stop running workflow and status gets overwritten",
+            "description": "When 'cancel' is invoked, it loads the run from storage, marks it as 'cancelled', and saves it. However, the actual workflow execution (from a prior 'start' call) is still running in memory via `await mod.default(runtime)`. When that execution finishes (lines 149-160), it overwrites `run.status` to 'completed' or 'failed' and calls saveRun again, effectively undoing the cancellation. The in-memory `run` object from the start call is separate from the one loaded by cancel. Additionally, no abort signal is passed to the runtime, so the workflow function has no way to know it should stop.",
+            "line": 107,
+            "suggestion": "Pass the AbortSignal (currently `_signal`) into the runtime context so workflows can check for cancellation. Before overwriting the status in the completion/error handlers, reload the run from store and check if it's been cancelled. Alternatively, maintain a map of active AbortControllers keyed by runId and abort the controller when cancel is called."
+          },
+          {
+            "severity": "medium",
+            "category": "type-safety",
+            "title": "JSON.parse result unsafely typed as Record<string, unknown>",
+            "description": "On line 120, `JSON.parse(params.args)` is assigned to `parsedArgs` which is typed as `Record<string, unknown> | undefined`. However, JSON.parse can return any valid JSON value: a string, number, boolean, null, or array. If the user passes args like `\"123\"`, `\"null\"`, or `\"[1,2,3]\"`, parsedArgs will not be a Record and downstream code consuming it as an object will behave incorrectly or crash.",
+            "line": 120,
+            "suggestion": "Add a type check after parsing: `const parsed = JSON.parse(params.args); if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) { return error response; } parsedArgs = parsed;`"
+          },
+          {
+            "severity": "medium",
+            "category": "error-handling",
+            "title": "Fire-and-forget saveRun silently swallows persistence errors",
+            "description": "On line 140, `saveRun(cwd, run).catch(() => {})` discards any error from saving intermediate workflow state. If the filesystem is full, permissions change, or the path becomes invalid, all step progress updates are silently lost with no indication to the user or any logging. This makes debugging workflow state issues very difficult.",
+            "line": 140,
+            "suggestion": "At minimum, log the error: `.catch((err) => ctx.ui.notify?.('Failed to persist workflow step: ' + err.message, 'warn'))` or use a debounced save with retry logic."
+          },
+          {
+            "severity": "low",
+            "category": "code-smell",
+            "title": "Redundant dynamic import of mkdir that shadows module-level import",
+            "description": "Line 49 dynamically imports `mkdir` from 'fs/promises' with `const { mkdir } = await import('fs/promises')`, but `mkdir` is already imported at the module level on line 4. The dynamic import is unnecessary and creates confusion about which `mkdir` is being used where.",
+            "line": 49,
+            "suggestion": "Remove the dynamic import on line 49 and use the module-level `mkdir` that's already imported: `await mkdir(getProjectWorkflowDir(ctx.cwd), { recursive: true }).catch(() => {});`"
+          }
+        ],
+        "overall_quality": "acceptable",
+        "notes": "The code is generally well-structured with good error handling in the main execution path. The primary concern is the cancel mechanism which is fundamentally broken due to the race between the cancel action updating stored state and the running workflow overwriting it upon completion. The type safety issue with JSON.parse is a common pitfall. The fire-and-forget saves are a pragmatic choice for non-critical intermediate state, but the complete silence on failure makes debugging harder."
+      },
+      {
+        "file": "src/loader.ts",
+        "bugs": [
+          {
+            "severity": "critical",
+            "category": "security",
+            "title": "Path traversal in loadWorkflow allows arbitrary file import",
+            "description": "The `name` parameter in `loadWorkflow` is used directly in `join(dir, \\`${name}${ext}\\`)` without any sanitization. If `name` contains path traversal sequences like `../../`, `path.join` will resolve them, allowing an attacker to import (and execute) arbitrary JavaScript/TypeScript files outside the intended workflow directories. Since `import()` executes the module, this is effectively arbitrary code execution if the name is user-controlled.",
+            "line": 95,
+            "suggestion": "Validate that `name` does not contain path separators or traversal sequences. For example: `if (name.includes('/') || name.includes('\\\\') || name.includes('..')) return null;` at the start of the function. Alternatively, after computing `path`, verify it starts with `dir + path.sep`."
+          },
+          {
+            "severity": "high",
+            "category": "logic-error",
+            "title": "Early return null prevents checking other extensions and directories",
+            "description": "In `loadWorkflow`, when a module is successfully imported but `!mod.meta?.name` is true, the function immediately returns `null`. This prevents checking other file extensions in the same directory or other directories entirely. For example, if `foo.js` exists as a utility file (no meta) in a directory, the function will never find `foo.mjs` or `foo.ts` which might be the actual workflow, nor will it look in any subsequent directories.",
+            "line": 98,
+            "suggestion": "Replace `return null` with `continue` to keep searching other extensions/directories. If you want to stop searching once any file with that base name is found (regardless of validity), break out of both loops and return null, but at minimum try all extensions in the current directory first."
+          },
+          {
+            "severity": "medium",
+            "category": "type-safety",
+            "title": "Unsafe cast of imported module to WorkflowModule",
+            "description": "The module is cast to `WorkflowModule` with only a check for `mod.meta?.name`. The module may not have a default export function or other required properties of the WorkflowModule interface. Callers relying on the full WorkflowModule shape (e.g., calling `mod.default(...)`) could crash at runtime if the module doesn't conform.",
+            "line": 99,
+            "suggestion": "Add validation for the required shape before casting, e.g., check that `typeof mod.default === 'function'` and that `mod.meta` has the expected structure. Return null if validation fails."
+          },
+          {
+            "severity": "low",
+            "category": "performance",
+            "title": "Redundant double call to parse(f) in listDir",
+            "description": "In the `listDir` function, `parse(f)` is called once in the `.filter()` callback and again in the `.map()` callback for the same file. While not a major performance issue, it's unnecessary work that could be avoided.",
+            "line": 68,
+            "suggestion": "Use a single pass with `.flatMap()` or `.reduce()`, or chain `.map(f => ({ parsed: parse(f), f }))` first, then filter and map from the pre-parsed result."
+          }
+        ],
+        "overall_quality": "concerning",
+        "notes": "The file has a critical path traversal vulnerability that allows importing arbitrary files when `name` is user-controlled, and a significant logic error that causes workflows to be unfindable in certain valid configurations. The directory traversal logic in `discoverProjectDirs` and `findGitRoot` is well-structured, but the core `loadWorkflow` function has both a security issue and incorrect early-exit behavior that undermine its reliability."
+      },
+      {
+        "file": "src/runtime.ts",
+        "bugs": [
+          {
+            "severity": "medium",
+            "category": "resource-leak",
+            "title": "Session not disposed when session.prompt() throws",
+            "description": "In the `agent` function, if `session.prompt()` throws an exception (e.g., network error, API error), the control flow jumps directly to the outer `catch` block at line 138, bypassing `session.dispose()` at lines 110 and 131. This means the agent session's resources (event listeners, connections, etc.) are never cleaned up. This affects both the schema path and the non-schema path.",
+            "line": 106,
+            "suggestion": "Wrap each session usage in a try/finally block to ensure disposal:\n\n```typescript\nconst { session } = await createAgentSession({ ... });\ntry {\n  await session.prompt(schemaPrompt);\n} finally {\n  session.dispose();\n}\n```\n\nDo this for both the schema and non-schema code paths."
+          },
+          {
+            "severity": "medium",
+            "category": "concurrency",
+            "title": "Unbounded concurrency in pipeline stages",
+            "description": "The `pipeline` function processes ALL items through a stage concurrently via `Promise.all(tasks)` with no concurrency limit. If a workflow passes a large array of items (e.g., 100 files to analyze), all of them will be sent to the agent API simultaneously, potentially overwhelming the API rate limit, causing OOM, or triggering throttling. This is especially problematic since each `stage` could internally call `agent()` which creates sessions.",
+            "line": 157,
+            "suggestion": "Add a concurrency limit using a semaphore pattern or batching, or accept a `concurrency` option:\n\n```typescript\nconst pipeline: PipelineFn = async (items, ...stages) => {\n  // Process in batches of e.g. 4\n  const concurrency = 4;\n  // Use p-limit or manual batching\n};\n```"
+          },
+          {
+            "severity": "low",
+            "category": "logic-error",
+            "title": "responseText captures only last text block, losing earlier text",
+            "description": "In the non-schema path, the `subscribe` handler overwrites `responseText` for each text block (`responseText = block.text`). If an assistant message contains multiple text content blocks (rare but possible), only the last one is returned. More importantly, if the agent does multi-turn interaction (using tools), only the final message's text is captured, which may be empty or minimal if the model's last turn was just a tool call.",
+            "line": 127,
+            "suggestion": "Append text blocks instead of overwriting, or accumulate across messages:\n\n```typescript\nfor (const block of msg.content) {\n  if (block.type === \"text\") {\n    responseText += block.text;\n  }\n}\n```\n\nOr if you truly only want the last message's text, document this clearly."
+          },
+          {
+            "severity": "low",
+            "category": "error-handling",
+            "title": "Agent errors are silently swallowed, returning undefined indistinguishable from no-result",
+            "description": "The `agent` function catches all errors and returns `undefined`. The caller cannot distinguish between 'the model intentionally returned nothing' and 'a critical error occurred'. While the error is recorded on the step object via the `onStep` callback, callers that only check the return value will silently proceed with `undefined`, potentially leading to downstream failures in workflows that depend on the result.",
+            "line": 138,
+            "suggestion": "Consider either re-throwing the error (with the step still updated), returning a discriminated result type like `{ ok: true, value } | { ok: false, error }`, or at minimum logging via `log()` before returning undefined:\n\n```typescript\n} catch (err: any) {\n  step.status = \"failed\";\n  step.completedAt = Date.now();\n  step.error = err?.message ?? String(err);\n  onStep(step);\n  log(`Agent step \"${step.name}\" failed: ${step.error}`);\n  return undefined;\n}\n```"
+          },
+          {
+            "severity": "low",
+            "category": "logic-error",
+            "title": "Pipeline passes undefined to subsequent stages after a stage failure",
+            "description": "When a pipeline stage throws for a particular item, the result is set to `{ _item: item, _result: undefined }`. The next stage then receives `undefined` as its `input` argument. If the next stage doesn't handle `undefined` input gracefully, it will throw (which is caught, producing another `undefined`), causing a cascade of silent failures across all remaining stages for that item.",
+            "line": 152,
+            "suggestion": "Consider filtering out failed items from subsequent stages, or providing a sentinel value that stages can check:\n\n```typescript\ncatch (err) {\n  log(`Pipeline stage failed for item ${index}: ${err}`);\n  return { _item: item, _result: undefined, _failed: true };\n}\n// Then filter before next stage:\nconst activeResults = results.filter(r => !r._failed);\n```"
+          }
+        ],
+        "overall_quality": "acceptable",
+        "notes": "The code is well-structured with clear separation of concerns. The createEmitResultTool pattern for structured output is clever and well-documented. The main concern is the resource leak from missing try/finally around session usage, which could accumulate in long-running workflows. The pipeline's unbounded concurrency is a practical concern for production use. Type safety is reasonable given the dynamic nature of the schema handling, though the `as any` casts could be tightened."
+      },
+      {
+        "file": "src/store.ts",
+        "bugs": [
+          {
+            "severity": "medium",
+            "category": "security",
+            "title": "Path traversal via runId parameter",
+            "description": "The `runPath` function constructs a file path using `runId` without sanitization: `join(runsDir(cwd), \\`${runId}.json\\`)`. If a malicious `runId` contains path traversal sequences like `../../etc/passwd`, the resulting path would escape the `.pi-workflows/.runs/` directory. In the current usage, new runs use `randomUUID()` (safe), but `loadRun` is called with user-supplied `params.run_id` from tool parameters (in index.ts lines 108, 119). An attacker providing a crafted `run_id` could read arbitrary JSON files on the filesystem via `loadRun`.",
+            "line": 12,
+            "suggestion": "Validate that `runId` contains no path separators or '..' sequences. For example: `if (runId.includes('/') || runId.includes('\\\\') || runId.includes('..')) throw new Error('Invalid runId');` Or use `path.basename(runId)` to strip directory components before constructing the path."
+          },
+          {
+            "severity": "low",
+            "category": "error-handling",
+            "title": "loadRun swallows all errors including corruption/permission issues",
+            "description": "The catch block in `loadRun` returns `null` for any error, including JSON parse failures (corrupted files), permission denied errors, or other unexpected I/O errors. This means corrupted run files are silently treated as non-existent, making debugging difficult. For ENOENT (file not found) returning null is appropriate, but other errors should likely propagate.",
+            "line": 29,
+            "suggestion": "Catch the error, check if it's an ENOENT/file-not-found error and return null only in that case. For other errors (parse failures, permission errors), either re-throw or log a warning: `catch (err: any) { if (err?.code === 'ENOENT') return null; throw err; }`"
+          },
+          {
+            "severity": "low",
+            "category": "type-safety",
+            "title": "Unsafe type assertion on parsed JSON",
+            "description": "`JSON.parse(data) as WorkflowRun` performs no runtime validation. If a run file is manually edited, partially written (due to a crash during `saveRun`), or comes from an older schema version, the returned object may not actually conform to `WorkflowRun`. Callers will access properties like `run.steps`, `run.status`, `run.updatedAt` which could be undefined.",
+            "line": 27,
+            "suggestion": "Add minimal runtime validation before returning, e.g. check that the parsed object has the required fields (`runId`, `status`, `updatedAt`, `steps` array). Consider using a schema validation library like zod, or at minimum: `const parsed = JSON.parse(data); if (!parsed?.runId || !parsed?.status) return null;`"
+          }
+        ],
+        "overall_quality": "acceptable",
+        "notes": "The file is small, focused, and well-structured. The main concern is the lack of runId sanitization which creates a path traversal risk when called with user-supplied input. The error handling strategy of returning null/empty-array is reasonable for a simple file-based store but could benefit from distinguishing \"not found\" from \"corrupted/inaccessible\". The code is otherwise clean with proper use of async/await, recursive directory creation, and type predicates in the filter."
+      },
+      {
+        "file": "src/types.ts",
+        "bugs": [
+          {
+            "severity": "low",
+            "category": "code-smell",
+            "title": "Redundant 'step' property in WorkflowRuntime",
+            "description": "WorkflowRuntime extends PipelineContext which already declares 'step: StepFn'. Redeclaring it in WorkflowRuntime (line 36) is redundant. While not a runtime bug (since the types are identical), it creates a maintenance risk: if someone changes the type in one place but not the other, it could cause confusing type errors.",
+            "line": 36,
+            "suggestion": "Remove the redundant 'step: StepFn;' from WorkflowRuntime since it's already inherited from PipelineContext."
+          },
+          {
+            "severity": "low",
+            "category": "type-safety",
+            "title": "PipelineStageFn 'item' parameter typed as 'any' loses type connection to pipeline input",
+            "description": "PipelineStageFn<TIn, TOut> declares the second parameter 'item' as 'any' instead of connecting it to the generic type T from PipelineFn's items array. This means implementers of pipeline stages get no type checking on the original item parameter, which can lead to runtime type errors that TypeScript won't catch.",
+            "line": 23,
+            "suggestion": "Add a third generic parameter to PipelineStageFn: `PipelineStageFn<TIn, TOut, TItem = unknown>` with signature `(input: TIn, item: TItem, index: number)`, or at minimum use 'unknown' instead of 'any' to force explicit type narrowing."
+          },
+          {
+            "severity": "low",
+            "category": "type-safety",
+            "title": "PipelineFn return type is Promise<any[]> defeating downstream type safety",
+            "description": "The PipelineFn type returns Promise<any[]>, which means any code consuming the pipeline result loses all type safety. Combined with the PipelineStageFn<any, any>[] rest parameter, the entire pipeline is effectively untyped at the boundary.",
+            "line": 28,
+            "suggestion": "Consider returning Promise<unknown[]> to force consumers to narrow the type, or use more sophisticated generics to infer the output type from the last stage."
+          }
+        ],
+        "overall_quality": "acceptable",
+        "notes": "This is a pure type definitions file with no runtime code, so the risk of actual bugs is inherently low. The types are well-structured and cover the workflow domain model comprehensively. The main concerns are around excessive use of 'any' which weakens type safety guarantees, and one redundant property declaration. The design pattern of PipelineStageFn receiving both the previous stage's output and the original item is a reasonable architectural choice, though the naming could be clearer."
+      }
+    ]
+  }
+}
