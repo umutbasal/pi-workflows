@@ -16,8 +16,27 @@ A [pi](https://github.com/earendil-works/pi-coding-agent) extension that adds wo
 git clone https://github.com/umutbasal/pi-workflows.git
 cd pi-workflows
 bun install
+```
+
+### Install extension
+
+```bash
 pi extensions add ./src/index.ts
 ```
+
+Or copy manually:
+
+```bash
+cp -r src ~/.pi/agent/extensions/pi-workflows
+```
+
+### Install skill
+
+```bash
+cp -r skills/create-workflow ~/.pi/agent/skills/
+```
+
+This installs the `create-workflow` skill which gives the AI full context on how to write workflows when asked to create one.
 
 ## Writing Workflows
 

@@ -5,6 +5,9 @@
   "module": "src/index.ts",
   "type": "module",
   "private": true,
+  "pi": {
+    "skills": ["skills/create-workflow"]
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },

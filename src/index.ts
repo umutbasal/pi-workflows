@@ -8,119 +8,42 @@ import { listRuns, loadRun, saveRun } from "./store";
 import type { WorkflowRun, WorkflowStep } from "./types";
 
 const WORKFLOW_PROMPT_GUIDELINES = [
-  "When the user asks you to create a workflow, write a .js file in .pi/workflows/ (project-local) that exports `meta` and a default async function.",
-  "Workflow scripts receive `{ agent, pipeline, log, args }`. Use `agent(prompt, opts?)` to spawn sub-agents that have full tool access (read, write, bash, grep, etc).",
-  "Use `pipeline(items, ...stages)` to process items through stages. Each stage runs items concurrently, stages run sequentially.",
-  "The `agent()` function returns the agent's text response. Pass `{ schema }` to get structured JSON back.",
   "Use `action: 'start'` to execute a workflow, `action: 'list'` to see available ones.",
   "Workflows are discovered from: .pi/workflows/, .agents/workflows/, .pi-workflows/ in project and ancestors, plus ~/.pi/agent/workflows/ and ~/.agents/workflows/ globally.",
   "When creating new workflows, always place them in .pi/workflows/ within the project root.",
 ];
 
-const WORKFLOW_SCRIPT_TEMPLATE = `// ─── Runtime API ───────────────────────────────────────────────────────
-// Available runtime: { agent, pipeline, step, log, args }
+const WORKFLOW_SCRIPT_TEMPLATE = `// Runtime: { agent, pipeline, step, log, args }
 //
-// agent(prompt, opts?) - spawn a sub-agent with full tool access:
-//   The agent can: read/write files, run bash commands, grep/search,
-//   list directories, fetch URLs, call APIs, install packages, etc.
-//   USE AGENT FOR EVERYTHING - don't manually code file listing, HTTP
-//   requests, parsing, or search. Just ask the agent in natural language.
-//   opts.label   - display label for tracking
-//   opts.phase   - phase name for grouping
-//   opts.schema  - JSON schema to get structured output (returns parsed JSON)
-//   Returns: agent's text response (string), or parsed JSON object if schema provided
+// agent(prompt, opts?) - sub-agent with full tool access (bash, read, write, grep, fetch, etc.)
+//   Delegate ALL work to agent: file discovery, reading, searching, web, APIs, etc.
+//   opts: { label, phase, schema }  — schema returns parsed JSON, otherwise string
 //
-// pipeline(items, ...stages) - process items through concurrent stages
-//   Each stage fn: (item) => agentCall or value  (first stage)
-//                  (prevResult, item, index) => ...  (subsequent stages)
-//   Items within a stage run concurrently; stages run sequentially
-//   Returns: array of final results (same order as input items)
+// pipeline(items, ...stages) - concurrent processing
+//   Stage 1: (item) => ...  |  Stage 2+: (prevResult, item, index) => ...
 //
-// step(name, phase, fn) - track a non-agent computation step
-//   Wraps fn() with timing and status tracking in the run log
-//   Returns: whatever fn() returns
+// step(name, phase, fn) - tracked JS computation (aggregation, filtering)
+// log(message) - progress notification
+// args - parsed JSON from workflow tool args
 //
-// log(message) - show a progress notification to the user
-// args - parsed JSON from the workflow tool call's args parameter
+// ──── Minimal example ────
 //
-// ─── KEY PRINCIPLE ─────────────────────────────────────────────────────
-// Delegate ALL I/O and intelligence to agent(). The workflow script is
-// just orchestration logic (control flow, data plumbing, aggregation).
-// DON'T: manually use fs, fetch, child_process, glob, etc.
-// DO:    ask the agent to find files, read content, search the web,
-//        call APIs, install deps, run commands, parse data, etc.
-//
-// ─── Example: File Reviewer (shows all features) ──────────────────────
-//
-// export const meta = {
-//   name: "review",
-//   description: "Review source files for issues",
-//   phases: [
-//     { title: "Discover", detail: "find files" },
-//     { title: "Analyze", detail: "review each file" },
-//     { title: "Report", detail: "compile results" },
-//   ],
-// };
+// export const meta = { name: "review", description: "Review files for bugs" };
 //
 // export default async function ({ agent, pipeline, step, log, args }) {
-//   const dir = args?.dir || ".";
-//
-//   // Let agent find files (it uses bash/find/fd internally)
-//   log("Finding files...");
-//   const files = await agent(
-//     \`Find all .ts source files in "\${dir}", excluding node_modules and test files.\`,
-//     { label: "find-files", phase: "Discover", schema: { type: "array", items: { type: "string" } } }
-//   );
-//
-//   // pipeline() → agent reviews each file concurrently
+//   const files = await agent("Find all .ts source files, excluding tests", {
+//     schema: { type: "array", items: { type: "string" } },
+//   });
 //   const results = await pipeline(files, (file) =>
-//     agent(\`Read "\${file}" and find bugs. Report each with line number and description.\`, {
+//     agent(\`Read "\${file}" and find bugs\`, {
 //       label: \`review:\${file}\`,
-//       phase: "Analyze",
-//       schema: { type: "object", properties: { file: {type:"string"}, bugs: {type:"array",items:{type:"object"}} } },
+//       schema: { type: "object", properties: { file:{type:"string"}, bugs:{type:"array"} } },
 //     })
 //   );
-//
-//   // step() → pure JS aggregation (no agent needed for simple data transforms)
-//   return await step("compile", "Report", async () => {
-//     const bugsFound = results.filter(r => r?.bugs?.length > 0);
-//     log(\`Done: \${bugsFound.length} files with issues\`);
-//     return { total: files.length, issues: bugsFound };
-//   });
-// }
-//
-// ─── Example: Simple (agent does all the work) ────────────────────────
-//
-// export const meta = { name: "explain", description: "Explain a file" };
-//
-// export default async function ({ agent, log, args }) {
-//   const file = args?.file ?? "README.md";
-//   log(\`Explaining \${file}...\`);
-//   // agent reads the file, understands it, and explains - no manual fs needed
-//   return await agent(\`Read "\${file}" and explain what it does in plain English.\`);
-// }
-//
-// ─── Example: Multi-stage pipeline (chained agent work) ───────────────
-//
-// export const meta = { name: "refactor", description: "Find and fix code smells" };
-//
-// export default async function ({ agent, pipeline, log, args }) {
-//   // Agent handles discovery (uses bash, grep, find internally)
-//   const files = await agent(
-//     "Find all .js source files in this project, excluding tests and node_modules",
-//     { schema: { type: "array", items: { type: "string" } } }
-//   );
-//   // Multi-stage: stage 1 agent analyzes, stage 2 agent fixes using prev results
-//   const results = await pipeline(
-//     files,
-//     (file) => agent(\`Read "\${file}" and identify code smells\`, {
-//       schema: { type: "object", properties: { file:{type:"string"}, smells:{type:"array",items:{type:"string"}} } },
-//     }),
-//     (analysis, file, i) => agent(
-//       \`Fix these code smells in "\${file}": \${JSON.stringify(analysis.smells)}. Edit the file directly.\`
-//     )
-//   );
-//   return results;
+//   return await step("report", "Report", () => ({
+//     total: files.length,
+//     issues: results.filter(r => r?.bugs?.length > 0),
+//   }));
 // }
 `;
 
