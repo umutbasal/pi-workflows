@@ -261,6 +261,10 @@ Workflows are searched in this order (first match wins):
 
 Project workflows override global ones with the same name.
 
+## References
+
+- [security-workflows](https://github.com/umutbasal/security-workflows) — Standalone usecase of pi workflows for security analysis
+
 ## License
 
 MIT
