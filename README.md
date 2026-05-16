@@ -2,6 +2,12 @@
 
 A [pi](https://github.com/earendil-works/pi-coding-agent) extension that adds workflow orchestration — define multi-step agent pipelines as simple JavaScript scripts and run them from the TUI.
 
+## Dashboard
+
+Run `/dashboard` to start a local web dashboard showing live workflow runs with a tree visualization of steps and phases.
+
+![Dashboard](assets/dashboard.png)
+
 ## Features
 
 - **Discover** workflows from `.pi/workflows/`, `.agents/workflows/`, `.pi-workflows/` in the project tree and `~/.pi/agent/workflows/` globally
