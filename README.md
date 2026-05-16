@@ -18,13 +18,21 @@ Run `/dashboard` to start a local web dashboard showing live workflow runs with 
 
 ## Setup
 
+### Via pi install
+
+```bash
+pi install https://github.com/umutbasal/pi-workflows
+```
+
+### Or manual installation
+
 ```bash
 git clone https://github.com/umutbasal/pi-workflows.git
 cd pi-workflows
 bun install
 ```
 
-### Install extension
+Then install the extension:
 
 ```bash
 pi extensions add ./src/index.ts
@@ -36,7 +44,7 @@ Or copy manually:
 cp -r src ~/.pi/agent/extensions/pi-workflows
 ```
 
-### Install skill
+#### Install skill
 
 ```bash
 cp -r skills/create-workflow ~/.pi/agent/skills/
@@ -129,11 +137,13 @@ When writing workflows, follow these rules:
 3. **Phase names must match exactly.** The `phase` string in `agent()` options or `step()` calls must match a `title` in `meta.phases` exactly (case-sensitive).
 
 4. **Destructure `step` from the runtime.** The function signature should be:
+
    ```js
    export default async function ({ agent, pipeline, step, log, args }) {
    ```
 
 5. **Return values from `step()`.** If the final phase produces the workflow result, return it directly:
+
    ```js
    return await step("compile", "Report", async () => {
      return { summary, details };
