@@ -6,8 +6,18 @@
   "type": "module",
   "private": false,
   "pi": {
+    "extensions": [
+      "./extensions"
+    ],
     "skills": ["skills/create-workflow"]
   },
+  "files": [
+    "extensions",
+    "skills",
+    "src",
+    "README.md",
+    "package.json"
+  ],
   "devDependencies": {
     "@types/bun": "latest"
   },
