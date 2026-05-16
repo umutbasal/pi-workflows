@@ -1,6 +1,6 @@
 # pi-workflows
 
-A [pi](https://github.com/earendil-works/pi-coding-agent) extension that adds workflow orchestration — define multi-step agent pipelines as simple JavaScript scripts and run them from the TUI.
+A [pi](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) extension that adds workflow orchestration — define multi-step agent pipelines as simple JavaScript scripts and run them from the TUI.
 
 ## Dashboard
 
