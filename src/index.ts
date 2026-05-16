@@ -254,7 +254,7 @@ export default function piWorkflows(pi: ExtensionAPI) {
   });
 }
 
-function formatRun(run: WorkflowRun): string {
+export function formatRun(run: WorkflowRun): string {
   const lines = [
     `Run: ${run.runId}`,
     `Workflow: ${run.workflow}`,
