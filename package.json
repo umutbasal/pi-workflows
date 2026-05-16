@@ -4,7 +4,7 @@
   "main": "src/index.ts",
   "module": "src/index.ts",
   "type": "module",
-  "private": true,
+  "private": false,
   "pi": {
     "skills": ["skills/create-workflow"]
   },
