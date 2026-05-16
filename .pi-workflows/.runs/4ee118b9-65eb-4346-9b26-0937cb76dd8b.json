@@ -1,9 +1,9 @@
 {
   "runId": "4ee118b9-65eb-4346-9b26-0937cb76dd8b",
   "workflow": "test-plan",
-  "status": "running",
+  "status": "completed",
   "createdAt": 1778948117446,
-  "updatedAt": 1778948138897,
+  "updatedAt": 1778948170574,
   "steps": [
     {
       "name": "discover-sources",
@@ -23,32 +23,339 @@
     {
       "name": "analyze:.pi/workflows/test-plan.js",
       "phase": "Analyze",
-      "status": "running",
-      "startedAt": 1778948126927
+      "status": "completed",
+      "startedAt": 1778948126927,
+      "completedAt": 1778948151952,
+      "result": {
+        "file": ".pi/workflows/test-plan.js",
+        "needs_unit": true,
+        "needs_integration": true,
+        "has_existing_tests": false,
+        "priority": "medium",
+        "reason": "Workflow orchestration script with data transformation logic in the report phase and agent coordination; moderate complexity but not core business logic",
+        "suggestions": [
+          {
+            "test_type": "unit",
+            "description": "Test the compile-report phase logic: verify files are correctly grouped by priority (critical/high/medium/low/skip) when given mock analysis results",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test fallback handling when analysis result is null or non-object - should default to {priority:'medium', needs_unit:false, needs_integration:false, reason:'analysis failed'}",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test summary statistics calculation: needs_unit_tests count, needs_integration_tests count, already_has_tests count, and total_test_suggestions sum across all results",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test default args resolution: dir defaults to '.', extensions defaults to 'ts,js,tsx,jsx,py,go,rs', exclude defaults to expected directories",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test early return with error object when discovery returns empty array or non-array value",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test full workflow execution with mocked agent/pipeline/step/log dependencies - verify agent is called with correct prompts and schemas, pipeline processes all files, and final report structure is correct",
+            "complexity": "complex"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test that the discovery phase agent prompt correctly incorporates custom args.dir, args.extensions, and args.exclude values",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test meta export has required fields: name, description, and phases array with correct structure (title and detail for each phase)",
+            "complexity": "simple"
+          }
+        ],
+        "risk_factors": [
+          "Report phase grouping logic could silently produce wrong priority counts if filter condition has a typo",
+          "Fallback when analysis fails could mask real errors - no logging of which files failed",
+          "Summary statistics could be wrong if optional chaining on suggestions?.length misses edge cases",
+          "Custom args override could break if args is undefined vs null (only checks args?.dir)"
+        ]
+      }
     },
     {
       "name": "analyze:src/index.ts",
       "phase": "Analyze",
-      "status": "running",
-      "startedAt": 1778948126930
+      "status": "completed",
+      "startedAt": 1778948126930,
+      "completedAt": 1778948170573,
+      "result": {
+        "file": "src/index.ts",
+        "needs_unit": true,
+        "needs_integration": true,
+        "has_existing_tests": true,
+        "priority": "high",
+        "reason": "Main extension entry point with complex action-routing logic, error handling, and state management in the tool execute handler; only formatRun is currently tested",
+        "risk_factors": [
+          "Action routing bugs (wrong branch for list/status/cancel/start) could break the entire tool",
+          "Cancel action modifies step statuses in a loop - off-by-one or wrong status filter could leave runs in inconsistent state",
+          "Invalid JSON args not caught properly could crash the extension",
+          "Start action has multiple failure modes (workflow not found, no default export, execution error) that need distinct handling",
+          "Race condition in step tracking - saveRun called in onStep callback could lose updates if steps complete rapidly",
+          "Session_start event handlers silently swallow errors which could hide workflow discovery failures"
+        ],
+        "suggestions": [
+          {
+            "test_type": "integration",
+            "description": "Test 'list' action returns formatted workflow list with names, sources, dirs, and recent runs from store",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test 'status' action returns error when run_id is missing, returns 'not found' for invalid run_id, and returns formatted run for valid run_id",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test 'cancel' action sets run status to 'cancelled', updates timestamps, and transitions only pending/running steps to 'cancelled' (leaving completed/failed steps unchanged)",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test 'start' action with unknown workflow name returns helpful error with available workflows list and template",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test 'start' action rejects invalid JSON in params.args with clear error message",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test 'start' action with a workflow that has no default export marks run as completed and returns informative message",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test 'start' action executes workflow default function, passes parsed args via runtime, saves run with 'completed' status and result on success",
+            "complexity": "complex"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test 'start' action catches execution errors, saves run with 'failed' status, and returns error message",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test step tracking callback during workflow execution: new steps are pushed, existing steps (same name+startedAt) are updated in place, and run is persisted after each change",
+            "complexity": "complex"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test command handler with no args or 'list' calls listWorkflows and shows select UI, then sends user message with selected workflow name",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test command handler with workflow name and extra args sends user message including both name and args string",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test session_start event handler sets UI status with correct workflow count when workflows exist, and does nothing when none found",
+            "complexity": "moderate"
+          }
+        ]
+      }
     },
     {
       "name": "analyze:src/loader.ts",
       "phase": "Analyze",
-      "status": "running",
-      "startedAt": 1778948126931
+      "status": "completed",
+      "startedAt": 1778948126931,
+      "completedAt": 1778948157988,
+      "result": {
+        "file": "src/loader.ts",
+        "has_existing_tests": false,
+        "needs_unit": true,
+        "needs_integration": true,
+        "priority": "high",
+        "reason": "Core workflow discovery/loading logic with filesystem traversal, path resolution, and deduplication - bugs here break all workflow functionality",
+        "risk_factors": [
+          "Incorrect git root detection could cause workflows to be missed or discovered from wrong directories",
+          "Directory traversal logic could infinite-loop or skip parent dirs on edge cases (symlinks, root filesystems)",
+          "Workflow deduplication (project overrides global) could break if ordering changes",
+          "loadWorkflow silently returns null on modules without meta.name - could mask real import errors",
+          "Extension matching is case-sensitive via toLowerCase but real filesystems may behave differently",
+          "listDir swallows all errors uniformly - permission errors look the same as missing directories"
+        ],
+        "suggestions": [
+          {
+            "test_type": "unit",
+            "description": "Test getProjectWorkflowDir returns correct path combining cwd with .pi/workflows",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test findGitRoot traverses up from nested directory to find .git directory and returns that path",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test findGitRoot returns null when no .git exists (reaches filesystem root)",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test discoverProjectDirs generates all PROJECT_DIR_NAMES variants for each directory from cwd up to git root",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test discoverProjectDirs stops at git root and doesn't traverse above it",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test getAllWorkflowDirs returns project dirs followed by global dirs in correct order",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test listDir filters files by EXTENSIONS (.js, .ts, .mjs, .mts) and ignores other files like .json or .md",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test listDir returns empty array for non-existent directory (graceful error handling)",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test listWorkflows deduplicates by name - project workflows shadow global workflows with same name",
+            "complexity": "complex"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test listWorkflows returns results sorted alphabetically by name",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test loadWorkflow tries all extensions in order and returns first successful import with valid meta",
+            "complexity": "complex"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test loadWorkflow returns null when module exists but lacks meta.name property",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test loadWorkflow returns null when no matching workflow file exists in any directory",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test full discovery with a temp directory structure: project workflow overrides global workflow of same name",
+            "complexity": "complex"
+          }
+        ]
+      }
     },
     {
       "name": "analyze:src/runtime.ts",
       "phase": "Analyze",
-      "status": "running",
-      "startedAt": 1778948126932
+      "status": "completed",
+      "startedAt": 1778948126932,
+      "completedAt": 1778948158179,
+      "result": {
+        "file": "src/runtime.ts",
+        "needs_unit": true,
+        "needs_integration": false,
+        "has_existing_tests": true,
+        "priority": "medium",
+        "reason": "Good existing test coverage for pipeline/agent/log, but the `step` function is completely untested and `createEmitResultTool` non-object schema wrapping path lacks coverage",
+        "risk_factors": [
+          "step() function has no tests - status tracking and error re-throw behavior unverified",
+          "Non-object schema wrapping/unwrapping in createEmitResultTool could silently break structured output for array/primitive schemas",
+          "Agent with schema where emit_result tool is successfully called (captured result path) is only tested via fallback path",
+          "Pipeline error logging message format could regress without notice"
+        ],
+        "suggestions": [
+          {
+            "test_type": "unit",
+            "description": "Test step() tracks running -> completed status and returns the function result",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test step() tracks running -> failed status and re-throws the error (unlike agent which swallows errors)",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test step() sets startedAt and completedAt timestamps correctly",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test agent with non-object schema (e.g. type:'array') wraps prompt with 'Pass your result in the result parameter' instruction",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test createEmitResultTool with non-object schema wraps in {type:'object', properties:{result:schema}} and unwraps .result from params on execute",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test createEmitResultTool execute() returns terminate:true and 'Result captured.' text",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test agent with schema where getResult() returns a value (simulate tool execute being called) - verifies step.result contains captured structured data",
+            "complexity": "complex"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test agent returns undefined and sets step.error when emit_result tool was never called (current fallback path already partially tested but error message not asserted)",
+            "complexity": "simple"
+          }
+        ]
+      }
     },
     {
       "name": "analyze:src/store.ts",
       "phase": "Analyze",
-      "status": "running",
-      "startedAt": 1778948126932
+      "status": "completed",
+      "startedAt": 1778948126932,
+      "completedAt": 1778948146865,
+      "result": {
+        "file": "src/store.ts",
+        "needs_unit": false,
+        "needs_integration": false,
+        "has_existing_tests": true,
+        "priority": "low",
+        "reason": "Comprehensive tests already exist covering all exported functions, error paths, edge cases, and sorting logic",
+        "risk_factors": [
+          "Concurrent writes could corrupt run files (not currently tested)",
+          "Special characters in runId could produce invalid file paths"
+        ],
+        "suggestions": [
+          {
+            "test_type": "integration",
+            "description": "Test concurrent saveRun calls for the same runId to verify last-write-wins behavior without data corruption",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test that runId values with path separators or special chars (e.g., '../escape', 'run/bad') don't allow path traversal",
+            "complexity": "simple"
+          }
+        ]
+      }
     },
     {
       "name": "analyze:src/types.ts",
@@ -68,6 +375,691 @@
           "Type definitions could become inconsistent with runtime implementations, but this is caught by the TypeScript compiler, not tests"
         ]
       }
+    },
+    {
+      "name": "compile-report",
+      "phase": "Report",
+      "status": "completed",
+      "startedAt": 1778948170574,
+      "completedAt": 1778948170574,
+      "result": {
+        "summary": {
+          "total_files": 6,
+          "needs_unit_tests": 4,
+          "needs_integration_tests": 3,
+          "already_has_tests": 3,
+          "by_priority": {
+            "critical": 0,
+            "high": 2,
+            "medium": 2,
+            "low": 1,
+            "skip": 1
+          },
+          "total_test_suggestions": 44
+        },
+        "critical": [],
+        "high": [
+          {
+            "file": "src/index.ts",
+            "needs_unit": true,
+            "needs_integration": true,
+            "has_existing_tests": true,
+            "priority": "high",
+            "reason": "Main extension entry point with complex action-routing logic, error handling, and state management in the tool execute handler; only formatRun is currently tested",
+            "risk_factors": [
+              "Action routing bugs (wrong branch for list/status/cancel/start) could break the entire tool",
+              "Cancel action modifies step statuses in a loop - off-by-one or wrong status filter could leave runs in inconsistent state",
+              "Invalid JSON args not caught properly could crash the extension",
+              "Start action has multiple failure modes (workflow not found, no default export, execution error) that need distinct handling",
+              "Race condition in step tracking - saveRun called in onStep callback could lose updates if steps complete rapidly",
+              "Session_start event handlers silently swallow errors which could hide workflow discovery failures"
+            ],
+            "suggestions": [
+              {
+                "test_type": "integration",
+                "description": "Test 'list' action returns formatted workflow list with names, sources, dirs, and recent runs from store",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test 'status' action returns error when run_id is missing, returns 'not found' for invalid run_id, and returns formatted run for valid run_id",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test 'cancel' action sets run status to 'cancelled', updates timestamps, and transitions only pending/running steps to 'cancelled' (leaving completed/failed steps unchanged)",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test 'start' action with unknown workflow name returns helpful error with available workflows list and template",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test 'start' action rejects invalid JSON in params.args with clear error message",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test 'start' action with a workflow that has no default export marks run as completed and returns informative message",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test 'start' action executes workflow default function, passes parsed args via runtime, saves run with 'completed' status and result on success",
+                "complexity": "complex"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test 'start' action catches execution errors, saves run with 'failed' status, and returns error message",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test step tracking callback during workflow execution: new steps are pushed, existing steps (same name+startedAt) are updated in place, and run is persisted after each change",
+                "complexity": "complex"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test command handler with no args or 'list' calls listWorkflows and shows select UI, then sends user message with selected workflow name",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test command handler with workflow name and extra args sends user message including both name and args string",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test session_start event handler sets UI status with correct workflow count when workflows exist, and does nothing when none found",
+                "complexity": "moderate"
+              }
+            ]
+          },
+          {
+            "file": "src/loader.ts",
+            "has_existing_tests": false,
+            "needs_unit": true,
+            "needs_integration": true,
+            "priority": "high",
+            "reason": "Core workflow discovery/loading logic with filesystem traversal, path resolution, and deduplication - bugs here break all workflow functionality",
+            "risk_factors": [
+              "Incorrect git root detection could cause workflows to be missed or discovered from wrong directories",
+              "Directory traversal logic could infinite-loop or skip parent dirs on edge cases (symlinks, root filesystems)",
+              "Workflow deduplication (project overrides global) could break if ordering changes",
+              "loadWorkflow silently returns null on modules without meta.name - could mask real import errors",
+              "Extension matching is case-sensitive via toLowerCase but real filesystems may behave differently",
+              "listDir swallows all errors uniformly - permission errors look the same as missing directories"
+            ],
+            "suggestions": [
+              {
+                "test_type": "unit",
+                "description": "Test getProjectWorkflowDir returns correct path combining cwd with .pi/workflows",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test findGitRoot traverses up from nested directory to find .git directory and returns that path",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test findGitRoot returns null when no .git exists (reaches filesystem root)",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test discoverProjectDirs generates all PROJECT_DIR_NAMES variants for each directory from cwd up to git root",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test discoverProjectDirs stops at git root and doesn't traverse above it",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test getAllWorkflowDirs returns project dirs followed by global dirs in correct order",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test listDir filters files by EXTENSIONS (.js, .ts, .mjs, .mts) and ignores other files like .json or .md",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test listDir returns empty array for non-existent directory (graceful error handling)",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test listWorkflows deduplicates by name - project workflows shadow global workflows with same name",
+                "complexity": "complex"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test listWorkflows returns results sorted alphabetically by name",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test loadWorkflow tries all extensions in order and returns first successful import with valid meta",
+                "complexity": "complex"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test loadWorkflow returns null when module exists but lacks meta.name property",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test loadWorkflow returns null when no matching workflow file exists in any directory",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test full discovery with a temp directory structure: project workflow overrides global workflow of same name",
+                "complexity": "complex"
+              }
+            ]
+          }
+        ],
+        "medium": [
+          {
+            "file": ".pi/workflows/test-plan.js",
+            "needs_unit": true,
+            "needs_integration": true,
+            "has_existing_tests": false,
+            "priority": "medium",
+            "reason": "Workflow orchestration script with data transformation logic in the report phase and agent coordination; moderate complexity but not core business logic",
+            "suggestions": [
+              {
+                "test_type": "unit",
+                "description": "Test the compile-report phase logic: verify files are correctly grouped by priority (critical/high/medium/low/skip) when given mock analysis results",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test fallback handling when analysis result is null or non-object - should default to {priority:'medium', needs_unit:false, needs_integration:false, reason:'analysis failed'}",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test summary statistics calculation: needs_unit_tests count, needs_integration_tests count, already_has_tests count, and total_test_suggestions sum across all results",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test default args resolution: dir defaults to '.', extensions defaults to 'ts,js,tsx,jsx,py,go,rs', exclude defaults to expected directories",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test early return with error object when discovery returns empty array or non-array value",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test full workflow execution with mocked agent/pipeline/step/log dependencies - verify agent is called with correct prompts and schemas, pipeline processes all files, and final report structure is correct",
+                "complexity": "complex"
+              },
+              {
+                "test_type": "integration",
+                "description": "Test that the discovery phase agent prompt correctly incorporates custom args.dir, args.extensions, and args.exclude values",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test meta export has required fields: name, description, and phases array with correct structure (title and detail for each phase)",
+                "complexity": "simple"
+              }
+            ],
+            "risk_factors": [
+              "Report phase grouping logic could silently produce wrong priority counts if filter condition has a typo",
+              "Fallback when analysis fails could mask real errors - no logging of which files failed",
+              "Summary statistics could be wrong if optional chaining on suggestions?.length misses edge cases",
+              "Custom args override could break if args is undefined vs null (only checks args?.dir)"
+            ]
+          },
+          {
+            "file": "src/runtime.ts",
+            "needs_unit": true,
+            "needs_integration": false,
+            "has_existing_tests": true,
+            "priority": "medium",
+            "reason": "Good existing test coverage for pipeline/agent/log, but the `step` function is completely untested and `createEmitResultTool` non-object schema wrapping path lacks coverage",
+            "risk_factors": [
+              "step() function has no tests - status tracking and error re-throw behavior unverified",
+              "Non-object schema wrapping/unwrapping in createEmitResultTool could silently break structured output for array/primitive schemas",
+              "Agent with schema where emit_result tool is successfully called (captured result path) is only tested via fallback path",
+              "Pipeline error logging message format could regress without notice"
+            ],
+            "suggestions": [
+              {
+                "test_type": "unit",
+                "description": "Test step() tracks running -> completed status and returns the function result",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test step() tracks running -> failed status and re-throws the error (unlike agent which swallows errors)",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test step() sets startedAt and completedAt timestamps correctly",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test agent with non-object schema (e.g. type:'array') wraps prompt with 'Pass your result in the result parameter' instruction",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test createEmitResultTool with non-object schema wraps in {type:'object', properties:{result:schema}} and unwraps .result from params on execute",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test createEmitResultTool execute() returns terminate:true and 'Result captured.' text",
+                "complexity": "simple"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test agent with schema where getResult() returns a value (simulate tool execute being called) - verifies step.result contains captured structured data",
+                "complexity": "complex"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test agent returns undefined and sets step.error when emit_result tool was never called (current fallback path already partially tested but error message not asserted)",
+                "complexity": "simple"
+              }
+            ]
+          }
+        ],
+        "low": [
+          {
+            "file": "src/store.ts",
+            "needs_unit": false,
+            "needs_integration": false,
+            "has_existing_tests": true,
+            "priority": "low",
+            "reason": "Comprehensive tests already exist covering all exported functions, error paths, edge cases, and sorting logic",
+            "risk_factors": [
+              "Concurrent writes could corrupt run files (not currently tested)",
+              "Special characters in runId could produce invalid file paths"
+            ],
+            "suggestions": [
+              {
+                "test_type": "integration",
+                "description": "Test concurrent saveRun calls for the same runId to verify last-write-wins behavior without data corruption",
+                "complexity": "moderate"
+              },
+              {
+                "test_type": "unit",
+                "description": "Test that runId values with path separators or special chars (e.g., '../escape', 'run/bad') don't allow path traversal",
+                "complexity": "simple"
+              }
+            ]
+          }
+        ],
+        "skipped": [
+          {
+            "file": "src/types.ts",
+            "needs_unit": false,
+            "needs_integration": false,
+            "has_existing_tests": false,
+            "priority": "skip",
+            "reason": "Pure type/interface definitions file with no runtime logic, no functions, no classes — only TypeScript type declarations and interfaces.",
+            "suggestions": [],
+            "risk_factors": [
+              "Type definitions could become inconsistent with runtime implementations, but this is caught by the TypeScript compiler, not tests"
+            ]
+          }
+        ]
+      }
     }
-  ]
+  ],
+  "result": {
+    "summary": {
+      "total_files": 6,
+      "needs_unit_tests": 4,
+      "needs_integration_tests": 3,
+      "already_has_tests": 3,
+      "by_priority": {
+        "critical": 0,
+        "high": 2,
+        "medium": 2,
+        "low": 1,
+        "skip": 1
+      },
+      "total_test_suggestions": 44
+    },
+    "critical": [],
+    "high": [
+      {
+        "file": "src/index.ts",
+        "needs_unit": true,
+        "needs_integration": true,
+        "has_existing_tests": true,
+        "priority": "high",
+        "reason": "Main extension entry point with complex action-routing logic, error handling, and state management in the tool execute handler; only formatRun is currently tested",
+        "risk_factors": [
+          "Action routing bugs (wrong branch for list/status/cancel/start) could break the entire tool",
+          "Cancel action modifies step statuses in a loop - off-by-one or wrong status filter could leave runs in inconsistent state",
+          "Invalid JSON args not caught properly could crash the extension",
+          "Start action has multiple failure modes (workflow not found, no default export, execution error) that need distinct handling",
+          "Race condition in step tracking - saveRun called in onStep callback could lose updates if steps complete rapidly",
+          "Session_start event handlers silently swallow errors which could hide workflow discovery failures"
+        ],
+        "suggestions": [
+          {
+            "test_type": "integration",
+            "description": "Test 'list' action returns formatted workflow list with names, sources, dirs, and recent runs from store",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test 'status' action returns error when run_id is missing, returns 'not found' for invalid run_id, and returns formatted run for valid run_id",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test 'cancel' action sets run status to 'cancelled', updates timestamps, and transitions only pending/running steps to 'cancelled' (leaving completed/failed steps unchanged)",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test 'start' action with unknown workflow name returns helpful error with available workflows list and template",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test 'start' action rejects invalid JSON in params.args with clear error message",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test 'start' action with a workflow that has no default export marks run as completed and returns informative message",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test 'start' action executes workflow default function, passes parsed args via runtime, saves run with 'completed' status and result on success",
+            "complexity": "complex"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test 'start' action catches execution errors, saves run with 'failed' status, and returns error message",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test step tracking callback during workflow execution: new steps are pushed, existing steps (same name+startedAt) are updated in place, and run is persisted after each change",
+            "complexity": "complex"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test command handler with no args or 'list' calls listWorkflows and shows select UI, then sends user message with selected workflow name",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test command handler with workflow name and extra args sends user message including both name and args string",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test session_start event handler sets UI status with correct workflow count when workflows exist, and does nothing when none found",
+            "complexity": "moderate"
+          }
+        ]
+      },
+      {
+        "file": "src/loader.ts",
+        "has_existing_tests": false,
+        "needs_unit": true,
+        "needs_integration": true,
+        "priority": "high",
+        "reason": "Core workflow discovery/loading logic with filesystem traversal, path resolution, and deduplication - bugs here break all workflow functionality",
+        "risk_factors": [
+          "Incorrect git root detection could cause workflows to be missed or discovered from wrong directories",
+          "Directory traversal logic could infinite-loop or skip parent dirs on edge cases (symlinks, root filesystems)",
+          "Workflow deduplication (project overrides global) could break if ordering changes",
+          "loadWorkflow silently returns null on modules without meta.name - could mask real import errors",
+          "Extension matching is case-sensitive via toLowerCase but real filesystems may behave differently",
+          "listDir swallows all errors uniformly - permission errors look the same as missing directories"
+        ],
+        "suggestions": [
+          {
+            "test_type": "unit",
+            "description": "Test getProjectWorkflowDir returns correct path combining cwd with .pi/workflows",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test findGitRoot traverses up from nested directory to find .git directory and returns that path",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test findGitRoot returns null when no .git exists (reaches filesystem root)",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test discoverProjectDirs generates all PROJECT_DIR_NAMES variants for each directory from cwd up to git root",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test discoverProjectDirs stops at git root and doesn't traverse above it",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test getAllWorkflowDirs returns project dirs followed by global dirs in correct order",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test listDir filters files by EXTENSIONS (.js, .ts, .mjs, .mts) and ignores other files like .json or .md",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test listDir returns empty array for non-existent directory (graceful error handling)",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test listWorkflows deduplicates by name - project workflows shadow global workflows with same name",
+            "complexity": "complex"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test listWorkflows returns results sorted alphabetically by name",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test loadWorkflow tries all extensions in order and returns first successful import with valid meta",
+            "complexity": "complex"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test loadWorkflow returns null when module exists but lacks meta.name property",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test loadWorkflow returns null when no matching workflow file exists in any directory",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test full discovery with a temp directory structure: project workflow overrides global workflow of same name",
+            "complexity": "complex"
+          }
+        ]
+      }
+    ],
+    "medium": [
+      {
+        "file": ".pi/workflows/test-plan.js",
+        "needs_unit": true,
+        "needs_integration": true,
+        "has_existing_tests": false,
+        "priority": "medium",
+        "reason": "Workflow orchestration script with data transformation logic in the report phase and agent coordination; moderate complexity but not core business logic",
+        "suggestions": [
+          {
+            "test_type": "unit",
+            "description": "Test the compile-report phase logic: verify files are correctly grouped by priority (critical/high/medium/low/skip) when given mock analysis results",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test fallback handling when analysis result is null or non-object - should default to {priority:'medium', needs_unit:false, needs_integration:false, reason:'analysis failed'}",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test summary statistics calculation: needs_unit_tests count, needs_integration_tests count, already_has_tests count, and total_test_suggestions sum across all results",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test default args resolution: dir defaults to '.', extensions defaults to 'ts,js,tsx,jsx,py,go,rs', exclude defaults to expected directories",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test early return with error object when discovery returns empty array or non-array value",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test full workflow execution with mocked agent/pipeline/step/log dependencies - verify agent is called with correct prompts and schemas, pipeline processes all files, and final report structure is correct",
+            "complexity": "complex"
+          },
+          {
+            "test_type": "integration",
+            "description": "Test that the discovery phase agent prompt correctly incorporates custom args.dir, args.extensions, and args.exclude values",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test meta export has required fields: name, description, and phases array with correct structure (title and detail for each phase)",
+            "complexity": "simple"
+          }
+        ],
+        "risk_factors": [
+          "Report phase grouping logic could silently produce wrong priority counts if filter condition has a typo",
+          "Fallback when analysis fails could mask real errors - no logging of which files failed",
+          "Summary statistics could be wrong if optional chaining on suggestions?.length misses edge cases",
+          "Custom args override could break if args is undefined vs null (only checks args?.dir)"
+        ]
+      },
+      {
+        "file": "src/runtime.ts",
+        "needs_unit": true,
+        "needs_integration": false,
+        "has_existing_tests": true,
+        "priority": "medium",
+        "reason": "Good existing test coverage for pipeline/agent/log, but the `step` function is completely untested and `createEmitResultTool` non-object schema wrapping path lacks coverage",
+        "risk_factors": [
+          "step() function has no tests - status tracking and error re-throw behavior unverified",
+          "Non-object schema wrapping/unwrapping in createEmitResultTool could silently break structured output for array/primitive schemas",
+          "Agent with schema where emit_result tool is successfully called (captured result path) is only tested via fallback path",
+          "Pipeline error logging message format could regress without notice"
+        ],
+        "suggestions": [
+          {
+            "test_type": "unit",
+            "description": "Test step() tracks running -> completed status and returns the function result",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test step() tracks running -> failed status and re-throws the error (unlike agent which swallows errors)",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test step() sets startedAt and completedAt timestamps correctly",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test agent with non-object schema (e.g. type:'array') wraps prompt with 'Pass your result in the result parameter' instruction",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test createEmitResultTool with non-object schema wraps in {type:'object', properties:{result:schema}} and unwraps .result from params on execute",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test createEmitResultTool execute() returns terminate:true and 'Result captured.' text",
+            "complexity": "simple"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test agent with schema where getResult() returns a value (simulate tool execute being called) - verifies step.result contains captured structured data",
+            "complexity": "complex"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test agent returns undefined and sets step.error when emit_result tool was never called (current fallback path already partially tested but error message not asserted)",
+            "complexity": "simple"
+          }
+        ]
+      }
+    ],
+    "low": [
+      {
+        "file": "src/store.ts",
+        "needs_unit": false,
+        "needs_integration": false,
+        "has_existing_tests": true,
+        "priority": "low",
+        "reason": "Comprehensive tests already exist covering all exported functions, error paths, edge cases, and sorting logic",
+        "risk_factors": [
+          "Concurrent writes could corrupt run files (not currently tested)",
+          "Special characters in runId could produce invalid file paths"
+        ],
+        "suggestions": [
+          {
+            "test_type": "integration",
+            "description": "Test concurrent saveRun calls for the same runId to verify last-write-wins behavior without data corruption",
+            "complexity": "moderate"
+          },
+          {
+            "test_type": "unit",
+            "description": "Test that runId values with path separators or special chars (e.g., '../escape', 'run/bad') don't allow path traversal",
+            "complexity": "simple"
+          }
+        ]
+      }
+    ],
+    "skipped": [
+      {
+        "file": "src/types.ts",
+        "needs_unit": false,
+        "needs_integration": false,
+        "has_existing_tests": false,
+        "priority": "skip",
+        "reason": "Pure type/interface definitions file with no runtime logic, no functions, no classes — only TypeScript type declarations and interfaces.",
+        "suggestions": [],
+        "risk_factors": [
+          "Type definitions could become inconsistent with runtime implementations, but this is caught by the TypeScript compiler, not tests"
+        ]
+      }
+    ]
+  }
 }
