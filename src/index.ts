@@ -87,7 +87,7 @@ export default function piWorkflows(pi: ExtensionAPI) {
         Type.String({ description: "Run ID for status/cancel actions" }),
       ),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const action = params.action ?? "start";
       const cwd = ctx.cwd;
 
@@ -208,7 +208,7 @@ export default function piWorkflows(pi: ExtensionAPI) {
         run.steps = steps;
         run.updatedAt = Date.now();
         saveRun(cwd, run).catch(() => {});
-      });
+      }, signal);
       runtime.args = parsedArgs;
 
       try {
@@ -227,6 +227,24 @@ export default function piWorkflows(pi: ExtensionAPI) {
           details: {},
         };
       } catch (err) {
+        // Check if this was a cancellation
+        if (signal?.aborted || (err instanceof Error && err.message === "Workflow cancelled")) {
+          run.status = "cancelled";
+          run.updatedAt = Date.now();
+          for (const step of run.steps) {
+            if (step.status === "pending" || step.status === "running") {
+              step.status = "cancelled";
+            }
+          }
+          await saveRun(cwd, run);
+          return {
+            content: [{
+              type: "text",
+              text: `Workflow "${mod.meta.name}" cancelled.\nRun ID: ${run.runId}`,
+            }],
+            details: {},
+          };
+        }
         run.status = "failed";
         run.updatedAt = Date.now();
         await saveRun(cwd, run);
