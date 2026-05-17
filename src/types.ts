@@ -55,7 +55,7 @@ export interface WorkflowRun {
   runId: string;
   workflow: string;
   status: "running" | "completed" | "failed" | "cancelled";
-  args?: Record<string, unknown>;
+  args?: Record<string, unknown> | string;
   createdAt: number;
   updatedAt: number;
   steps: WorkflowStep[];

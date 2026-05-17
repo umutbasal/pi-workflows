@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import { mkdir } from "fs/promises";
 import { startDashboard } from "./dashboard";
 import { executeWorkflow } from "./executor";
-import { listWorkflows, loadWorkflow, getProjectWorkflowDir } from "./loader";
+import { listWorkflows, loadWorkflow, getProjectWorkflowDir, extractArgsHint } from "./loader";
 import { createRuntime } from "./runtime";
 import { listRuns, loadRun, saveRun } from "./store";
 import type { WorkflowRun, WorkflowStep } from "./types";
@@ -13,9 +13,15 @@ const WORKFLOW_PROMPT_GUIDELINES = [
   "Use `action: 'start'` to execute a workflow, `action: 'list'` to see available ones.",
   "Workflows are discovered from: .pi/workflows/, .agents/workflows/, .pi-workflows/ in project and ancestors, plus ~/.pi/agent/workflows/ and ~/.agents/workflows/ globally.",
   "When creating new workflows, always place them in .pi/workflows/ within the project root.",
+  "When a user message says 'with args: ...', pass the rest of the text as the `args` parameter to the workflow tool. It can be JSON or a free-form prompt string.",
+  "SANDBOX: Workflow scripts run in a sandboxed environment. Only these globals are available: agent(), pipeline(), parallel(), phase(), log(), args, and standard JS (Array, Object, JSON, Math, String, Promise, etc.). require(), import(), process, fs, path, child_process, and all Node.js built-ins are NOT available. For file I/O, shell commands, or system access, delegate to agent().",
 ];
 
 const WORKFLOW_SCRIPT_TEMPLATE = `// Globals: agent, pipeline, parallel, phase, log, args
+//
+// SANDBOX: This is a sandboxed runtime. You CANNOT use require(), import(), process,
+// Node.js built-ins, or any external packages. Only the globals below are available.
+// For file discovery, shell commands, or system access — delegate to agent().
 //
 // agent(prompt, opts?) - sub-agent with full tool access (bash, read, write, grep, fetch, etc.)
 //   Delegate ALL work to agent: file discovery, reading, searching, web, APIs, etc.
@@ -83,7 +89,7 @@ export default function piWorkflows(pi: ExtensionAPI) {
     parameters: Type.Object({
       workflow: Type.String({ description: "Name of the workflow to execute or create" }),
       args: Type.Optional(
-        Type.String({ description: "JSON arguments to pass to the workflow" }),
+        Type.String({ description: "Arguments to pass to the workflow (JSON object or free-form string)" }),
       ),
       action: Type.Optional(
         Type.Union([
@@ -173,12 +179,12 @@ export default function piWorkflows(pi: ExtensionAPI) {
         };
       }
 
-      let parsedArgs: Record<string, unknown> | undefined;
+      let parsedArgs: Record<string, unknown> | string | undefined;
       if (params.args) {
         try {
           parsedArgs = JSON.parse(params.args);
         } catch {
-          return { content: [{ type: "text", text: "Error: args must be valid JSON" }], details: {} };
+          parsedArgs = params.args;
         }
       }
 
@@ -285,8 +291,18 @@ export default function piWorkflows(pi: ExtensionAPI) {
         const selected = await ctx.ui.select("Select a workflow", names);
         if (!selected) return;
         const workflowName = selected.split(" [")[0];
+
+        const mod = await loadWorkflow(ctx.cwd, workflowName);
+        const argsHint = mod ? extractArgsHint(mod.body) : undefined;
+        const placeholder = argsHint ?? "e.g. JSON or free-form text";
+
+        const workflowArgs = await ctx.ui.input(
+          `Args for ${workflowName} (leave empty to skip)`,
+          placeholder,
+        );
+
         pi.sendUserMessage(
-          `Use the workflow tool to start the "${workflowName}" workflow.`,
+          `Use the workflow tool to start the "${workflowName}" workflow${workflowArgs ? ` with args: ${workflowArgs}` : ""}.`,
         );
         return;
       }

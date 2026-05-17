@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { extractMeta, extractBody } from "./loader";
+import { extractMeta, extractBody, extractArgsHint } from "./loader";
 
 describe("extractMeta", () => {
   test("extracts meta from a standard workflow file", () => {
@@ -44,6 +44,26 @@ const files = await agent("find files");
 };`;
     const meta = extractMeta(source);
     expect(meta!.name).toBe("test");
+  });
+});
+
+describe("extractArgsHint", () => {
+  test("extracts args hint from comment", () => {
+    const source = `// args: { files: Array<{zig: string, loc: number}>, repo: string }
+const REPO = (args && args.repo) || "/root/bun-5";`;
+    expect(extractArgsHint(source)).toBe(
+      "{ files: Array<{zig: string, loc: number}>, repo: string }",
+    );
+  });
+
+  test("returns undefined when no args comment exists", () => {
+    const source = `const x = 1;\nreturn x;`;
+    expect(extractArgsHint(source)).toBeUndefined();
+  });
+
+  test("is case-insensitive", () => {
+    const source = `// Args: { name: string }`;
+    expect(extractArgsHint(source)).toBe("{ name: string }");
   });
 });
 

@@ -121,6 +121,12 @@ export function extractBody(source: string): string {
   return source.replace(/export\s+const\s+meta\s*=\s*\{[^]*?\n\};?\s*/, "");
 }
 
+export function extractArgsHint(source: string): string | undefined {
+  const match = source.match(/\/\/\s*args\s*:\s*(.+)/i);
+  if (!match) return undefined;
+  return match[1].trim();
+}
+
 export async function loadWorkflow(
   cwd: string,
   name: string,

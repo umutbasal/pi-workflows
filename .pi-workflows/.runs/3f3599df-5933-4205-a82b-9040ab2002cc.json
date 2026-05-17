@@ -1,0 +1,15 @@
+{
+  "runId": "3f3599df-5933-4205-a82b-9040ab2002cc",
+  "workflow": "test-args-workflow",
+  "status": "completed",
+  "args": 1234,
+  "createdAt": 1779051400422,
+  "updatedAt": 1779051400424,
+  "steps": [],
+  "result": {
+    "greetings": [
+      "Hello, world! (#1)"
+    ],
+    "argsReceived": 1234
+  }
+}

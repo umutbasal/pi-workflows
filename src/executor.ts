@@ -5,7 +5,7 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 export async function executeWorkflow(
   body: string,
   runtime: WorkflowRuntime,
-  args: Record<string, unknown> | undefined,
+  args: Record<string, unknown> | string | undefined,
 ): Promise<unknown> {
   const fn = new AsyncFunction(
     "agent",
