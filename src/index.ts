@@ -3,6 +3,7 @@ import { Type } from "@sinclair/typebox";
 import { randomUUID } from "crypto";
 import { mkdir } from "fs/promises";
 import { startDashboard } from "./dashboard";
+import { executeWorkflow } from "./executor";
 import { listWorkflows, loadWorkflow, getProjectWorkflowDir } from "./loader";
 import { createRuntime } from "./runtime";
 import { listRuns, loadRun, saveRun } from "./store";
@@ -14,38 +15,47 @@ const WORKFLOW_PROMPT_GUIDELINES = [
   "When creating new workflows, always place them in .pi/workflows/ within the project root.",
 ];
 
-const WORKFLOW_SCRIPT_TEMPLATE = `// Runtime: { agent, pipeline, step, log, args }
+const WORKFLOW_SCRIPT_TEMPLATE = `// Globals: agent, pipeline, parallel, phase, log, args
 //
 // agent(prompt, opts?) - sub-agent with full tool access (bash, read, write, grep, fetch, etc.)
 //   Delegate ALL work to agent: file discovery, reading, searching, web, APIs, etc.
 //   opts: { label, phase, schema }  — schema returns parsed JSON, otherwise string
 //
-// pipeline(items, ...stages) - concurrent processing
-//   Stage 1: (item) => ...  |  Stage 2+: (prevResult, item, index) => ...
+// pipeline(items, ...steps) - maps items through sequential processing steps
+//   Step 1: (item) => ...  |  Step 2+: (prevResult, originalItem) => ...
 //
-// step(name, phase, fn) - tracked JS computation (aggregation, filtering)
+// parallel(thunks) - runs array of thunks concurrently
+//   parallel([() => agent(...), () => agent(...)])
+//   parallel(items.map(item => () => agent(promptFor(item), opts)))
+//
+// phase(name) - marks current execution phase (for progress tracking/UI)
 // log(message) - progress notification
 // args - parsed JSON from workflow tool args
 //
 // ──── Minimal example ────
 //
-// export const meta = { name: "review", description: "Review files for bugs" };
+// export const meta = {
+//   name: "review",
+//   description: "Review files for bugs",
+//   phases: [
+//     { title: "Discover", detail: "find source files" },
+//     { title: "Review", detail: "review each file" },
+//   ],
+// };
 //
-// export default async function ({ agent, pipeline, step, log, args }) {
-//   const files = await agent("Find all .ts source files, excluding tests", {
-//     schema: { type: "array", items: { type: "string" } },
-//   });
-//   const results = await pipeline(files, (file) =>
-//     agent(\`Read "\${file}" and find bugs\`, {
-//       label: \`review:\${file}\`,
-//       schema: { type: "object", properties: { file:{type:"string"}, bugs:{type:"array"} } },
-//     })
-//   );
-//   return await step("report", "Report", () => ({
-//     total: files.length,
-//     issues: results.filter(r => r?.bugs?.length > 0),
-//   }));
-// }
+// phase("Discover");
+// const files = await agent("Find all .ts source files, excluding tests", {
+//   schema: { type: "array", items: { type: "string" } },
+// });
+//
+// phase("Review");
+// const results = await pipeline(files,
+//   (file) => agent(\`Read "\${file}" and find bugs\`, {
+//     label: \`review:\${file}\`,
+//     schema: { type: "object", properties: { file:{type:"string"}, bugs:{type:"array"} } },
+//   })
+// );
+// return { total: files.length, issues: results.filter(r => r?.bugs?.length > 0) };
 `;
 
 
@@ -185,16 +195,6 @@ export default function piWorkflows(pi: ExtensionAPI) {
       await saveRun(cwd, run);
       ctx.ui.notify(`Starting workflow: ${mod.meta.name}`, "info");
 
-      if (!mod.default) {
-        run.status = "completed";
-        run.updatedAt = Date.now();
-        await saveRun(cwd, run);
-        return {
-          content: [{ type: "text", text: `Workflow ${mod.meta.name} has no default export to execute.` }],
-          details: {},
-        };
-      }
-
       const steps: WorkflowStep[] = [];
       const runtime = createRuntime(ctx, (step) => {
         const existing = steps.find(
@@ -209,10 +209,9 @@ export default function piWorkflows(pi: ExtensionAPI) {
         run.updatedAt = Date.now();
         saveRun(cwd, run).catch(() => {});
       }, signal);
-      runtime.args = parsedArgs;
 
       try {
-        const result = await mod.default(runtime);
+        const result = await executeWorkflow(mod.body, runtime, parsedArgs);
         run.status = "completed";
         run.result = result;
         run.updatedAt = Date.now();

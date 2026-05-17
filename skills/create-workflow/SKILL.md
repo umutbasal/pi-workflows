@@ -18,8 +18,10 @@ The agent has full tool access (read, write, bash, grep, find, fetch URLs, etc.)
 
 ## Runtime API
 
+Workflow scripts run with these implicit globals available:
+
 ```js
-export default async function ({ agent, pipeline, step, log, args }) { ... }
+// agent, pipeline, parallel, phase, log, args are all available as globals
 ```
 
 ### `agent(prompt, opts?)` — Spawn a sub-agent
@@ -82,16 +84,42 @@ const results = await pipeline(
 - First stage: `(item) => ...`
 - Subsequent stages: `(prevResult, item, index) => ...`
 
-### `step(name, phase, fn)` — Tracked computation
+### `parallel(thunks)` — Run thunks concurrently
 
-For pure JavaScript logic (aggregation, filtering, formatting) that doesn't need an agent. Tracked with timing in the run log.
+Run an array of zero-argument async functions concurrently and return all results. Use when you have independent tasks that don't need sequential processing like `pipeline`.
 
 ```js
-return await step("compile-report", "Report", async () => {
-  const withIssues = results.filter(r => r?.issues?.length > 0);
-  log(`Found ${withIssues.length} files with issues`);
-  return { summary: { total: files.length, withIssues: withIssues.length }, details: withIssues };
+// Run independent agent calls concurrently
+const [config, deps, readme] = await parallel([
+  () => agent("Read and summarize the project config"),
+  () => agent("List all dependencies and their purposes"),
+  () => agent("Read the README and extract key sections"),
+]);
+
+// Fan-out from array (common pattern)
+const results = await parallel(
+  files.map(file => () => agent(`Analyze ${file}`, {
+    label: `analyze:${file}`,
+    schema: { type: "object", properties: { file: {type:"string"}, issues: {type:"array"} } },
+  }))
+);
+```
+
+### `phase(name)` — Mark execution phase
+
+Marks the current execution phase for progress tracking and UI display. Subsequent `agent()` calls inherit this phase unless they specify their own `phase` option.
+
+```js
+phase("Discover");
+const files = await agent("Find all source files", {
+  schema: { type: "array", items: { type: "string" } },
 });
+
+phase("Analyze");
+const results = await parallel(
+  files.map(f => () => agent(`Review ${f}`, { label: `review:${f}` }))
+);
+// All agent calls above will have phase="Analyze"
 ```
 
 ### `log(message)` — Progress notification
@@ -128,13 +156,15 @@ export const meta = {
   ],
 };
 
-// Required: default export async function
-export default async function ({ agent, pipeline, step, log, args }) {
-  // 1. Discovery — agent finds what to work on
-  // 2. Processing — pipeline fans out work concurrently
-  // 3. Reporting — step aggregates results
-  return finalResult;
-}
+// Script body — globals (agent, pipeline, parallel, phase, log, args) are available directly
+phase("Discover");
+const items = await agent("Find targets", { schema: { type: "array", items: { type: "string" } } });
+
+phase("Process");
+const results = await pipeline(items, (item) => agent(`Process ${item}`));
+
+// Return value is the workflow result
+return { total: items.length, results };
 ```
 
 ## File Location
@@ -145,7 +175,7 @@ Write workflow files to: `.pi/workflows/<name>.js`
 
 ### Discovery → Fan-out → Aggregate
 
-The most common pattern. Agent discovers items, pipeline processes them concurrently, step compiles results.
+The most common pattern. Agent discovers items, pipeline processes them concurrently, results aggregated inline.
 
 ```js
 export const meta = {
@@ -158,38 +188,37 @@ export const meta = {
   ],
 };
 
-export default async function ({ agent, pipeline, step, log, args }) {
-  log("Finding API endpoints...");
-  const endpoints = await agent(
-    `Find all API route handlers in this project. Look for Express routes, Next.js API routes, or similar.`,
-    { label: "find-endpoints", phase: "Discover", schema: { type: "array", items: { type: "string" } } }
-  );
+log("Finding API endpoints...");
+phase("Discover");
+const endpoints = await agent(
+  `Find all API route handlers in this project. Look for Express routes, Next.js API routes, or similar.`,
+  { label: "find-endpoints", phase: "Discover", schema: { type: "array", items: { type: "string" } } }
+);
 
-  const audits = await pipeline(endpoints, (endpoint) =>
-    agent(`Read "${endpoint}" and check for: SQL injection, XSS, auth bypass, rate limiting gaps, input validation issues.`, {
-      label: `audit:${endpoint}`,
-      phase: "Audit",
-      schema: {
-        type: "object",
-        properties: {
-          file: { type: "string" },
-          vulnerabilities: { type: "array", items: { type: "object", properties: {
-            severity: { enum: ["critical","high","medium","low"] },
-            type: { type: "string" },
-            description: { type: "string" },
-            fix: { type: "string" },
-          }}},
-        },
+phase("Audit");
+const audits = await pipeline(endpoints, (endpoint) =>
+  agent(`Read "${endpoint}" and check for: SQL injection, XSS, auth bypass, rate limiting gaps, input validation issues.`, {
+    label: `audit:${endpoint}`,
+    phase: "Audit",
+    schema: {
+      type: "object",
+      properties: {
+        file: { type: "string" },
+        vulnerabilities: { type: "array", items: { type: "object", properties: {
+          severity: { enum: ["critical","high","medium","low"] },
+          type: { type: "string" },
+          description: { type: "string" },
+          fix: { type: "string" },
+        }}},
       },
-    })
-  );
+    },
+  })
+);
 
-  return await step("report", "Report", () => {
-    const vulns = audits.flatMap(a => a?.vulnerabilities ?? []);
-    log(`Audit complete: ${vulns.length} vulnerabilities found`);
-    return { total_endpoints: endpoints.length, total_vulnerabilities: vulns.length, by_severity: { critical: vulns.filter(v=>v.severity==="critical").length, high: vulns.filter(v=>v.severity==="high").length }, details: audits };
-  });
-}
+phase("Report");
+const vulns = audits.flatMap(a => a?.vulnerabilities ?? []);
+log(`Audit complete: ${vulns.length} vulnerabilities found`);
+return { total_endpoints: endpoints.length, total_vulnerabilities: vulns.length, by_severity: { critical: vulns.filter(v=>v.severity==="critical").length, high: vulns.filter(v=>v.severity==="high").length }, details: audits };
 ```
 
 ### Simple Single-Agent
@@ -199,11 +228,9 @@ When the workflow is just one intelligent task with no fan-out:
 ```js
 export const meta = { name: "summarize", description: "Summarize the project" };
 
-export default async function ({ agent, args }) {
-  return await agent(
-    `Read the README, package.json, and main source files of this project. Write a comprehensive summary covering: purpose, architecture, dependencies, and how to get started.`
-  );
-}
+return await agent(
+  `Read the README, package.json, and main source files of this project. Write a comprehensive summary covering: purpose, architecture, dependencies, and how to get started.`
+);
 ```
 
 ### Web Research with Synthesis
@@ -213,21 +240,20 @@ Agent fetches external information, pipeline processes sources, agent synthesize
 ```js
 export const meta = { name: "research", description: "Research a topic" };
 
-export default async function ({ agent, pipeline, step, log, args }) {
-  const topic = args?.topic ?? "error";
-  const sources = await agent(
-    `Find 5 authoritative sources about "${topic}". Search the web, find relevant URLs.`,
-    { schema: { type: "array", items: { type: "object", properties: { url:{type:"string"}, title:{type:"string"} } } } }
-  );
-  const summaries = await pipeline(sources, (src) =>
-    agent(`Read ${src.url} and extract the key insights about "${topic}"`, {
-      schema: { type: "object", properties: { source:{type:"string"}, insights:{type:"array",items:{type:"string"}} } },
-    })
-  );
-  return await step("synthesize", "Synthesize", () =>
-    agent(`Write a comprehensive report on "${topic}" synthesizing these findings:\n${JSON.stringify(summaries, null, 2)}`)
-  );
-}
+const topic = args?.topic ?? "error";
+phase("Discover");
+const sources = await agent(
+  `Find 5 authoritative sources about "${topic}". Search the web, find relevant URLs.`,
+  { schema: { type: "array", items: { type: "object", properties: { url:{type:"string"}, title:{type:"string"} } } } }
+);
+
+phase("Synthesize");
+const summaries = await pipeline(sources, (src) =>
+  agent(`Read ${src.url} and extract the key insights about "${topic}"`, {
+    schema: { type: "object", properties: { source:{type:"string"}, insights:{type:"array",items:{type:"string"}} } },
+  })
+);
+return await agent(`Write a comprehensive report on "${topic}" synthesizing these findings:\n${JSON.stringify(summaries, null, 2)}`);
 ```
 
 ### Mutating Workflow (agent edits files)
@@ -237,17 +263,15 @@ Agents can write/edit files directly — useful for refactoring, migration, etc:
 ```js
 export const meta = { name: "migrate", description: "Migrate deprecated API usage" };
 
-export default async function ({ agent, pipeline, log, args }) {
-  const pattern = args?.pattern ?? "oldFunction";
-  const files = await agent(
-    `Find all source files that use "${pattern}". Use grep/ripgrep to search.`,
-    { schema: { type: "array", items: { type: "string" } } }
-  );
-  log(`Found ${files.length} files to migrate`);
-  return await pipeline(files, (file) =>
-    agent(`Read "${file}" and replace all uses of "${pattern}" with the new API. Edit the file in place. Explain what you changed.`)
-  );
-}
+const pattern = args?.pattern ?? "oldFunction";
+const files = await agent(
+  `Find all source files that use "${pattern}". Use grep/ripgrep to search.`,
+  { schema: { type: "array", items: { type: "string" } } }
+);
+log(`Found ${files.length} files to migrate`);
+return await pipeline(files, (file) =>
+  agent(`Read "${file}" and replace all uses of "${pattern}" with the new API. Edit the file in place. Explain what you changed.`)
+);
 ```
 
 ## Tips

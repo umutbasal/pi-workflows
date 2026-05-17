@@ -58,7 +58,7 @@ This installs the `create-workflow` skill which gives the AI full context on how
 
 ## Writing Workflows
 
-Create a `.js` or `.ts` file in `.pi/workflows/`:
+Create a `.js` or `.ts` file in `.pi/workflows/`. Workflows are scripts with implicit globals — no function wrapper needed:
 
 ```js
 // .pi/workflows/my-workflow.js
@@ -71,35 +71,35 @@ export const meta = {
   ],
 };
 
-export default async function ({ agent, pipeline, step, log, args }) {
-  log("Starting...");
+log("Starting...");
 
-  // Spawn an agent with full tool access
-  const files = await agent("Find all TypeScript files in src/", {
-    label: "find-files",
-    phase: "Discover",
-    schema: { type: "array", items: { type: "string" } },
-  });
+// Spawn an agent with full tool access
+phase("Discover");
+const files = await agent("Find all TypeScript files in src/", {
+  label: "find-files",
+  schema: { type: "array", items: { type: "string" } },
+});
 
-  // Process items through stages (concurrent within each stage)
-  const results = await pipeline(
-    files,
-    (file) => agent(`Analyze ${file}`, { label: `analyze:${file}`, phase: "Process" }),
-  );
+// Process items through stages (concurrent within each stage)
+phase("Process");
+const results = await pipeline(
+  files,
+  (file) => agent(`Analyze ${file}`, { label: `analyze:${file}` }),
+);
 
-  return { files, results };
-}
+return { files, results };
 ```
 
 ## Runtime API
 
-Workflows receive a runtime object with:
+Workflows have these globals available:
 
-| Function | Description |
-|----------|-------------|
+| Global | Description |
+|--------|-------------|
 | `agent(prompt, opts?)` | Spawn a sub-agent with full tool access (read/write/bash/grep). Returns text or parsed JSON if `schema` is provided. |
 | `pipeline(items, ...stages)` | Process items through stages. Items within a stage run concurrently; stages run sequentially. |
-| `step(name, phase, fn)` | Wrap arbitrary (non-agent) logic as a tracked step. Reports running→completed/failed to the runtime. Returns the value from `fn()`. |
+| `parallel(thunks)` | Run an array of zero-argument async functions concurrently. |
+| `phase(name)` | Mark the current execution phase (for progress tracking/UI). |
 | `log(message)` | Show a notification in the TUI. |
 | `args` | Parsed JSON arguments passed to the workflow. |
 
@@ -113,48 +113,15 @@ interface AgentOptions {
 }
 ```
 
-### Step Function
-
-```ts
-type StepFn = <T>(name: string, phase: string, fn: () => T | Promise<T>) => Promise<T>;
-```
-
-Use `step()` to wrap non-agent logic (data transformation, compilation, local computation) so it appears as a tracked step in the run. This is essential for phases that don't involve agent calls.
-
-```js
-const report = await step("compile-report", "Report", async () => {
-  // local computation, no agent needed
-  return { summary: computeSummary(data) };
-});
-```
-
 ## Workflow Writing Rules
 
-> **Every phase declared in `meta.phases` MUST be tracked in the workflow code.**
+1. **All declared phases must be used.** If `meta.phases` lists a phase (e.g. `"Report"`), call `phase("Report")` before the relevant code.
 
-When writing workflows, follow these rules:
+2. **Phase names must match exactly.** The `phase()` calls and `agent(..., { phase: "X" })` must match a `title` in `meta.phases` exactly (case-sensitive).
 
-1. **All declared phases must be used.** If `meta.phases` lists a phase (e.g. `"Report"`), the workflow code MUST reference that phase — either via `agent(..., { phase: "Report" })` or `step("name", "Report", fn)`. A phase declared but never tracked is a bug.
+3. **Use `return` for the result.** The workflow's return value is displayed to the user and persisted.
 
-2. **Use `step()` for non-agent phases.** If a phase involves only local computation (aggregation, formatting, filtering), wrap it in `step(name, phase, fn)`. Do NOT leave it as bare code outside any phase tracking.
-
-3. **Phase names must match exactly.** The `phase` string in `agent()` options or `step()` calls must match a `title` in `meta.phases` exactly (case-sensitive).
-
-4. **Destructure `step` from the runtime.** The function signature should be:
-
-   ```js
-   export default async function ({ agent, pipeline, step, log, args }) {
-   ```
-
-5. **Return values from `step()`.** If the final phase produces the workflow result, return it directly:
-
-   ```js
-   return await step("compile", "Report", async () => {
-     return { summary, details };
-   });
-   ```
-
-6. **One phase per logical unit.** Don't mix multiple phases in a single `agent()` or `step()` call. Each tracked call should belong to exactly one phase.
+4. **One phase per logical unit.** Don't mix multiple phases in a single `agent()` call.
 
 ## Usage
 
