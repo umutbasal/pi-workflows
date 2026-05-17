@@ -21,6 +21,7 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 }));
 
 const { createRuntime } = await import("./runtime");
+const { executeWorkflow } = await import("./executor");
 
 function makeCtx() {
   return {
@@ -291,6 +292,121 @@ describe("agent", () => {
   });
 });
 
+describe("parallel", () => {
+  test("runs all thunks concurrently and returns results", async () => {
+    const runtime = createRuntime(makeCtx(), () => {});
+
+    const result = await runtime.parallel([
+      () => Promise.resolve(1),
+      () => Promise.resolve(2),
+      () => Promise.resolve(3),
+    ]);
+    expect(result).toEqual([1, 2, 3]);
+  });
+
+  test("returns empty array for empty thunks", async () => {
+    const runtime = createRuntime(makeCtx(), () => {});
+
+    const result = await runtime.parallel([]);
+    expect(result).toEqual([]);
+  });
+
+  test("propagates errors from thunks", async () => {
+    const runtime = createRuntime(makeCtx(), () => {});
+
+    await expect(
+      runtime.parallel([
+        () => Promise.resolve(1),
+        () => Promise.reject(new Error("boom")),
+      ]),
+    ).rejects.toThrow("boom");
+  });
+
+  test("throws if signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const runtime = createRuntime(makeCtx(), () => {}, controller.signal);
+
+    await expect(
+      runtime.parallel([() => Promise.resolve(1)]),
+    ).rejects.toThrow("Workflow cancelled");
+  });
+});
+
+describe("phase", () => {
+  beforeEach(() => {
+    mockPrompt.mockClear();
+    mockDispose.mockClear();
+    mockSubscribe.mockClear();
+  });
+
+  test("sets the current phase for subsequent agent calls", async () => {
+    const steps: WorkflowStep[] = [];
+    const runtime = createRuntime(makeCtx(), (s) => steps.push({ ...s }));
+
+    runtime.phase("Analyze");
+
+    mockPrompt.mockImplementationOnce(async () => {
+      const cb = (mockSubscribe as any)._cb;
+      cb({
+        type: "message_end",
+        message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+      });
+    });
+
+    await runtime.agent("do work", { label: "task1" });
+
+    expect(steps[0]!.phase).toBe("Analyze");
+  });
+
+  test("explicit phase in options overrides current phase", async () => {
+    const steps: WorkflowStep[] = [];
+    const runtime = createRuntime(makeCtx(), (s) => steps.push({ ...s }));
+
+    runtime.phase("Discover");
+
+    mockPrompt.mockImplementationOnce(async () => {
+      const cb = (mockSubscribe as any)._cb;
+      cb({
+        type: "message_end",
+        message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+      });
+    });
+
+    await runtime.agent("do work", { label: "task1", phase: "Report" });
+
+    expect(steps[0]!.phase).toBe("Report");
+  });
+
+  test("phase can be changed between agent calls", async () => {
+    const steps: WorkflowStep[] = [];
+    const runtime = createRuntime(makeCtx(), (s) => steps.push({ ...s }));
+
+    runtime.phase("Phase1");
+    mockPrompt.mockImplementationOnce(async () => {
+      const cb = (mockSubscribe as any)._cb;
+      cb({
+        type: "message_end",
+        message: { role: "assistant", content: [{ type: "text", text: "a" }] },
+      });
+    });
+    await runtime.agent("first", { label: "s1" });
+
+    runtime.phase("Phase2");
+    mockPrompt.mockImplementationOnce(async () => {
+      const cb = (mockSubscribe as any)._cb;
+      cb({
+        type: "message_end",
+        message: { role: "assistant", content: [{ type: "text", text: "b" }] },
+      });
+    });
+    await runtime.agent("second", { label: "s2" });
+
+    expect(steps[0]!.phase).toBe("Phase1");
+    expect(steps[2]!.phase).toBe("Phase2");
+  });
+});
+
 describe("log", () => {
   test("calls ctx.ui.notify with message and info level", () => {
     const ctx = makeCtx();
@@ -298,5 +414,73 @@ describe("log", () => {
 
     runtime.log("hello world");
     expect(ctx.ui.notify).toHaveBeenCalledWith("hello world", "info");
+  });
+});
+
+describe("executeWorkflow", () => {
+  test("executes script body with globals and returns result", async () => {
+    const runtime = createRuntime(makeCtx(), () => {});
+    const body = `return { sum: 1 + 2, name: args?.name ?? "default" };`;
+
+    const result = await executeWorkflow(body, runtime, { name: "test" });
+    expect(result).toEqual({ sum: 3, name: "test" });
+  });
+
+  test("provides phase and log as callable globals", async () => {
+    const ctx = makeCtx();
+    const runtime = createRuntime(ctx, () => {});
+    const body = `
+      phase("Build");
+      log("starting build");
+      return "done";
+    `;
+
+    const result = await executeWorkflow(body, runtime, undefined);
+    expect(result).toBe("done");
+    expect(ctx.ui.notify).toHaveBeenCalledWith("starting build", "info");
+  });
+
+  test("supports top-level await", async () => {
+    const runtime = createRuntime(makeCtx(), () => {});
+    const body = `
+      const x = await Promise.resolve(42);
+      return x;
+    `;
+
+    const result = await executeWorkflow(body, runtime, undefined);
+    expect(result).toBe(42);
+  });
+
+  test("parallel is available as a global", async () => {
+    const runtime = createRuntime(makeCtx(), () => {});
+    const body = `
+      const results = await parallel([
+        () => Promise.resolve("a"),
+        () => Promise.resolve("b"),
+      ]);
+      return results;
+    `;
+
+    const result = await executeWorkflow(body, runtime, undefined);
+    expect(result).toEqual(["a", "b"]);
+  });
+
+  test("pipeline is available as a global", async () => {
+    const runtime = createRuntime(makeCtx(), () => {});
+    const body = `
+      const results = await pipeline([1, 2, 3], (x) => x * 10);
+      return results;
+    `;
+
+    const result = await executeWorkflow(body, runtime, undefined);
+    expect(result).toEqual([10, 20, 30]);
+  });
+
+  test("args defaults to undefined when not provided", async () => {
+    const runtime = createRuntime(makeCtx(), () => {});
+    const body = `return args;`;
+
+    const result = await executeWorkflow(body, runtime, undefined);
+    expect(result).toBeUndefined();
   });
 });

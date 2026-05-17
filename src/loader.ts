@@ -1,7 +1,7 @@
-import { readdir, stat } from "fs/promises";
+import { readFile, readdir, stat } from "fs/promises";
 import { homedir } from "os";
 import { dirname, join, parse, resolve } from "path";
-import type { WorkflowModule } from "./types";
+import type { WorkflowMeta, WorkflowModule } from "./types";
 
 const EXTENSIONS = [".js", ".ts", ".mjs", ".mts"];
 
@@ -87,6 +87,40 @@ export async function listWorkflows(
   return results.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export function extractMeta(source: string): WorkflowMeta | null {
+  const match = source.match(/export\s+const\s+meta\s*=\s*/);
+  if (!match) return null;
+
+  const start = match.index! + match[0].length;
+  if (source[start] !== "{") return null;
+
+  let depth = 0;
+  let end = start;
+  for (let i = start; i < source.length; i++) {
+    if (source[i] === "{") depth++;
+    else if (source[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        end = i + 1;
+        break;
+      }
+    }
+  }
+
+  const literal = source.slice(start, end);
+  try {
+    const meta = new Function(`return (${literal})`)() as WorkflowMeta;
+    if (!meta?.name) return null;
+    return meta;
+  } catch {
+    return null;
+  }
+}
+
+export function extractBody(source: string): string {
+  return source.replace(/export\s+const\s+meta\s*=\s*\{[^]*?\n\};?\s*/, "");
+}
+
 export async function loadWorkflow(
   cwd: string,
   name: string,
@@ -97,9 +131,11 @@ export async function loadWorkflow(
     for (const ext of EXTENSIONS) {
       const path = join(dir, `${name}${ext}`);
       try {
-        const mod = await import(path);
-        if (!mod.meta?.name) return null;
-        return mod as WorkflowModule;
+        const source = await readFile(path, "utf-8");
+        const meta = extractMeta(source);
+        if (!meta) continue;
+        const body = extractBody(source);
+        return { meta, body };
       } catch {
         continue;
       }

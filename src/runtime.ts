@@ -5,8 +5,9 @@ import type {
   AgentFn,
   AgentOptions,
   LogFn,
+  ParallelFn,
+  PhaseFn,
   PipelineFn,
-  StepFn,
   WorkflowRuntime,
   WorkflowStep,
 } from "./types";
@@ -82,8 +83,14 @@ export function createRuntime(
   onStep: (step: WorkflowStep) => void,
   signal?: AbortSignal,
 ): WorkflowRuntime {
+  let currentPhase: string | undefined;
+
   const log: LogFn = (message) => {
     ctx.ui.notify(message, "info");
+  };
+
+  const phase: PhaseFn = (name: string) => {
+    currentPhase = name;
   };
 
   const agent: AgentFn = async (prompt: string, options?: AgentOptions) => {
@@ -94,7 +101,7 @@ export function createRuntime(
 
     const step: WorkflowStep = {
       name: options?.label ?? prompt.slice(0, 60),
-      phase: options?.phase,
+      phase: options?.phase ?? currentPhase,
       status: "running",
       startedAt: Date.now(),
     };
@@ -254,48 +261,12 @@ export function createRuntime(
     return results.map((r) => r._result);
   };
 
-  const step: StepFn = async (name, phase, fn) => {
-    // Check cancellation before starting step
+  const parallel: ParallelFn = async (thunks) => {
     if (signal?.aborted) {
       throw new Error("Workflow cancelled");
     }
-
-    const s: WorkflowStep = {
-      name,
-      phase,
-      status: "running",
-      startedAt: Date.now(),
-    };
-    onStep(s);
-
-    try {
-      const result = await fn();
-      if (signal?.aborted) {
-        s.status = "cancelled";
-        s.completedAt = Date.now();
-        onStep(s);
-        throw new Error("Workflow cancelled");
-      }
-      s.status = "completed";
-      s.completedAt = Date.now();
-      s.result = result;
-      onStep(s);
-      return result;
-    } catch (err: any) {
-      if (signal?.aborted) {
-        s.status = "cancelled";
-        s.completedAt = Date.now();
-        s.error = "Cancelled";
-        onStep(s);
-        throw new Error("Workflow cancelled");
-      }
-      s.status = "failed";
-      s.completedAt = Date.now();
-      s.error = err?.message ?? String(err);
-      onStep(s);
-      throw err;
-    }
+    return Promise.all(thunks.map((thunk) => thunk()));
   };
 
-  return { agent, log, pipeline, step, args: undefined };
+  return { agent, log, phase, parallel, pipeline };
 }

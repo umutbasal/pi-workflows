@@ -12,14 +12,8 @@ export interface AgentOptions {
 
 export type AgentFn = (prompt: string, options?: AgentOptions) => Promise<any>;
 export type LogFn = (message: string) => void;
-export type StepFn = <T>(name: string, phase: string, fn: () => T | Promise<T>) => Promise<T>;
-
-export interface PipelineContext {
-  agent: AgentFn;
-  log: LogFn;
-  step: StepFn;
-  args: Record<string, unknown> | undefined;
-}
+export type PhaseFn = (name: string) => void;
+export type ParallelFn = <T>(thunks: (() => Promise<T>)[]) => Promise<T[]>;
 
 export type PipelineStageFn<TIn, TOut> = (
   input: TIn,
@@ -32,14 +26,17 @@ export type PipelineFn = <T>(
   ...stages: PipelineStageFn<any, any>[]
 ) => Promise<any[]>;
 
-export interface WorkflowRuntime extends PipelineContext {
+export interface WorkflowRuntime {
+  agent: AgentFn;
+  log: LogFn;
+  phase: PhaseFn;
+  parallel: ParallelFn;
   pipeline: PipelineFn;
-  step: StepFn;
 }
 
 export interface WorkflowModule {
   meta: WorkflowMeta;
-  default?: (runtime: WorkflowRuntime) => Promise<any>;
+  body: string;
 }
 
 export type WorkflowStepStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
