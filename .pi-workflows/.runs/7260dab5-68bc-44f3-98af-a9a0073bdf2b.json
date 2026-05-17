@@ -1,0 +1,1551 @@
+{
+  "runId": "7260dab5-68bc-44f3-98af-a9a0073bdf2b",
+  "workflow": "test-analysis",
+  "status": "completed",
+  "createdAt": 1779047635889,
+  "updatedAt": 1779047772550,
+  "steps": [
+    {
+      "name": "find-sources",
+      "phase": "Discover",
+      "status": "completed",
+      "startedAt": 1779047635890,
+      "completedAt": 1779047643475,
+      "result": [
+        "src/dashboard.ts",
+        "src/executor.ts",
+        "src/index.ts",
+        "src/loader.ts",
+        "src/runtime.ts",
+        "src/store.ts",
+        "src/types.ts"
+      ]
+    },
+    {
+      "name": "analyze:src/dashboard.ts",
+      "phase": "Analyze",
+      "status": "completed",
+      "startedAt": 1779047643475,
+      "completedAt": 1779047675432,
+      "result": {
+        "file": "src/dashboard.ts",
+        "features": [
+          {
+            "name": "getTemplatePath",
+            "description": "Computes the path to the HTML template file relative to the module location",
+            "testType": "unit",
+            "severity": "low",
+            "reason": "Pure path computation with no side effects; unlikely to break unless file structure changes"
+          },
+          {
+            "name": "startDashboard server lifecycle",
+            "description": "Creates an HTTP server, listens on specified port, and returns url and stop function",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Core functionality that starts the server, binds to a port, and must return correct URL; involves OS-level networking"
+          },
+          {
+            "name": "HTML template serving (/ and /index.html)",
+            "description": "Serves the HTML template file with correct content-type header at root and /index.html paths",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Involves file system read and HTTP response; standard serving behavior but essential for dashboard usability"
+          },
+          {
+            "name": "Template load failure error handling",
+            "description": "Returns 500 status when template file cannot be read from disk",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Error boundary that prevents server crash on missing/unreadable template; users see graceful error instead of hang"
+          },
+          {
+            "name": "/api/runs endpoint",
+            "description": "Calls listRuns(cwd) and returns JSON-serialized run data with correct content-type",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Primary data API endpoint; integrates with store module and serializes data over HTTP; critical for dashboard functionality"
+          },
+          {
+            "name": "/events SSE endpoint",
+            "description": "Establishes Server-Sent Events connection with correct headers, sends connected event, and manages client set",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Real-time communication channel; must set correct SSE headers, maintain connection, and track clients for broadcast"
+          },
+          {
+            "name": "SSE client cleanup on disconnect",
+            "description": "Removes client from sseClients set when the request connection closes",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Prevents memory leaks from accumulating stale client references; requires simulating connection lifecycle"
+          },
+          {
+            "name": "File watcher triggers SSE broadcast",
+            "description": "Watches runsDir for changes and broadcasts 'runs-updated' event to all connected SSE clients",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Core real-time update mechanism; combines fs.watch with SSE broadcast to multiple clients; race conditions possible"
+          },
+          {
+            "name": "File watcher graceful failure",
+            "description": "Silently handles the case when runsDir does not exist (watch throws) without crashing the server",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Defensive coding for missing directory; server should still start even if runs directory doesn't exist yet"
+          },
+          {
+            "name": "404 handling for unknown routes",
+            "description": "Returns 404 status with 'Not found' body for any unrecognized URL path",
+            "testType": "integration",
+            "severity": "low",
+            "reason": "Standard fallback behavior; simple but ensures no unintended route exposure"
+          },
+          {
+            "name": "stop() cleanup function",
+            "description": "Closes file watcher, ends all SSE connections, clears client set, and closes the HTTP server",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Resource cleanup preventing port leaks, zombie watchers, and dangling connections; important for test isolation and graceful shutdown"
+          },
+          {
+            "name": "Server error rejection",
+            "description": "Rejects the returned promise and closes file watcher if server emits an error (e.g., port already in use)",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Critical error path; callers must receive the error to handle port conflicts or permission issues properly"
+          },
+          {
+            "name": "Default port and custom port",
+            "description": "Uses port 3847 by default but accepts a custom port parameter; returns the actual bound port in the URL",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Port configuration affects deployment; actual port from server.address() may differ from requested (e.g., port 0 for random)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "analyze:src/executor.ts",
+      "phase": "Analyze",
+      "status": "completed",
+      "startedAt": 1779047643476,
+      "completedAt": 1779047659346,
+      "result": {
+        "file": "src/executor.ts",
+        "features": [
+          {
+            "name": "executeWorkflow - dynamic function creation",
+            "description": "Creates an AsyncFunction from the workflow body string with specific parameter names (agent, pipeline, parallel, phase, log, args)",
+            "testType": "unit",
+            "severity": "critical",
+            "reason": "Core execution mechanism - dynamically compiling user-provided code into an async function. Incorrect parameter binding would break all workflows."
+          },
+          {
+            "name": "executeWorkflow - runtime binding",
+            "description": "Passes runtime properties (agent, pipeline, parallel, phase, log) and args as arguments to the dynamically created function",
+            "testType": "unit",
+            "severity": "critical",
+            "reason": "Core business logic ensuring the runtime API is correctly exposed to workflow scripts. Wrong bindings would silently break workflow execution."
+          },
+          {
+            "name": "executeWorkflow - async execution",
+            "description": "Executes the dynamically created function and returns its result as a Promise",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Tests that actual async workflow bodies execute correctly, including await expressions, and that return values propagate properly through the promise chain."
+          },
+          {
+            "name": "executeWorkflow - undefined args handling",
+            "description": "Handles the case where args parameter is undefined",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Edge case where no arguments are passed to a workflow. Should pass undefined without errors."
+          },
+          {
+            "name": "executeWorkflow - error propagation",
+            "description": "Errors thrown inside the workflow body should propagate as rejected promises",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "Error handling is critical for debugging workflows. Unhandled or swallowed errors would make workflows impossible to debug."
+          },
+          {
+            "name": "executeWorkflow - syntax error in body",
+            "description": "Handles malformed JavaScript in the body string (syntax errors at function creation time)",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "User-provided workflow bodies may contain syntax errors. The system should throw meaningful errors rather than crash unexpectedly."
+          },
+          {
+            "name": "AsyncFunction constructor",
+            "description": "The AsyncFunction reference is correctly derived from async function prototype",
+            "testType": "unit",
+            "severity": "low",
+            "reason": "Simple constant derivation that is unlikely to change, but validates the metaprogramming approach works correctly."
+          }
+        ]
+      }
+    },
+    {
+      "name": "analyze:src/index.ts",
+      "phase": "Analyze",
+      "status": "completed",
+      "startedAt": 1779047643477,
+      "completedAt": 1779047687910,
+      "result": {
+        "file": "src/index.ts",
+        "features": [
+          {
+            "name": "formatRun",
+            "description": "Pure function that formats a WorkflowRun object into a human-readable multi-line string with run ID, workflow name, status, timestamps, steps with durations, and optional result",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Pure function with no side effects - transforms structured data to string. Handles optional fields (phase, duration, result) and formats timestamps and durations."
+          },
+          {
+            "name": "workflow tool - list action",
+            "description": "Lists available workflows from filesystem discovery and recent runs from the store, formatted with source and directory info, plus the script template",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Depends on listWorkflows (filesystem discovery across multiple dirs) and listRuns (store access). Combines multiple external data sources into formatted output."
+          },
+          {
+            "name": "workflow tool - status action",
+            "description": "Retrieves and formats a specific workflow run by run_id, returning error if run_id missing or run not found",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Requires loading run state from persistent store (loadRun). Needs validation of run_id parameter and handling of missing runs."
+          },
+          {
+            "name": "workflow tool - cancel action",
+            "description": "Cancels a workflow run by setting its status to 'cancelled', marking all pending/running steps as cancelled, and persisting the updated state",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Mutates persistent state (run status and step statuses). Critical for workflow lifecycle management - incorrect cancellation could leave orphaned processes or corrupted state."
+          },
+          {
+            "name": "workflow tool - start action (successful execution)",
+            "description": "Loads workflow module, parses args, creates run record, sets up runtime with step tracking, executes workflow, saves completed result",
+            "testType": "integration",
+            "severity": "critical",
+            "reason": "Core business logic orchestrating multiple subsystems: module loading, runtime creation, workflow execution, persistent state management, and sub-agent delegation. A failure here breaks the entire plugin."
+          },
+          {
+            "name": "workflow tool - start action (workflow not found)",
+            "description": "When requested workflow doesn't exist, returns helpful error with available workflows list, project dir path, and creation template",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Depends on loadWorkflow and listWorkflows for filesystem discovery, plus mkdir for directory creation. Important for UX but not data-critical."
+          },
+          {
+            "name": "workflow tool - start action (error handling)",
+            "description": "Handles workflow execution failures: distinguishes between cancellation (signal abort or specific error message) and general failures, updates run status accordingly",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Error handling in async execution paths is critical for reliability. Must correctly differentiate cancellation from failure and persist correct state in both cases."
+          },
+          {
+            "name": "workflow tool - args JSON parsing",
+            "description": "Parses the optional 'args' string parameter as JSON, returning an error if invalid JSON is provided",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Input validation logic - parse user-provided JSON string. Invalid input must produce a clear error rather than crashing the workflow start."
+          },
+          {
+            "name": "step tracking callback",
+            "description": "Runtime callback that updates existing steps (by name+startedAt match) or adds new ones, then persists the run state asynchronously",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "Core state tracking logic that determines whether a step is new or an update. Incorrect deduplication could cause lost progress or duplicate entries. The find-and-assign logic is subtle."
+          },
+          {
+            "name": "session_start - workflow count status",
+            "description": "On session start, discovers workflows in cwd and sets a UI status indicator showing the count",
+            "testType": "integration",
+            "severity": "low",
+            "reason": "Cosmetic UI status update. Depends on filesystem discovery but failure has no functional impact on the extension."
+          },
+          {
+            "name": "session_start - ensure project workflow dir",
+            "description": "On session start, creates the project workflow directory (.pi/workflows/) with recursive mkdir, silently catching errors",
+            "testType": "integration",
+            "severity": "low",
+            "reason": "Filesystem side effect with error suppression. Important for first-run experience but failure is gracefully handled and non-critical."
+          },
+          {
+            "name": "dashboard command",
+            "description": "Registers a 'dashboard' command that starts a web dashboard (singleton pattern) and notifies the user of the URL, preventing duplicate instances",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Starts an HTTP server (startDashboard) and manages singleton state. Needs to verify deduplication logic and proper server lifecycle."
+          },
+          {
+            "name": "workflow command - interactive selection",
+            "description": "Registers a 'workflow' command that either lists workflows interactively (with ui.select) or sends a user message to trigger the workflow tool with parsed arguments",
+            "testType": "integration",
+            "severity": "low",
+            "reason": "UI interaction layer that delegates to the workflow tool via sendUserMessage. Logic is thin - mostly string parsing and UI calls."
+          },
+          {
+            "name": "cancel action - step status filtering",
+            "description": "When cancelling, only steps with 'pending' or 'running' status are set to 'cancelled', leaving completed/failed steps unchanged",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "State transition logic that must preserve completed step results. Incorrectly overwriting completed steps would lose execution history."
+          },
+          {
+            "name": "run creation and initialization",
+            "description": "Creates a new WorkflowRun with randomUUID, workflow name, 'running' status, parsed args, timestamps, and empty steps array before execution begins",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Correct initialization of run state is important for downstream tracking. Verifying the shape and defaults ensures store consistency."
+          }
+        ]
+      }
+    },
+    {
+      "name": "analyze:src/loader.ts",
+      "phase": "Analyze",
+      "status": "completed",
+      "startedAt": 1779047643478,
+      "completedAt": 1779047678008,
+      "result": {
+        "file": "src/loader.ts",
+        "features": [
+          {
+            "name": "getProjectWorkflowDir",
+            "description": "Returns the project workflow directory path by joining cwd with '.pi/workflows'",
+            "testType": "unit",
+            "severity": "low",
+            "reason": "Pure function with simple path joining, no side effects or complex logic"
+          },
+          {
+            "name": "findGitRoot",
+            "description": "Traverses filesystem upward from cwd to locate the nearest .git directory, returns the root or null",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Performs filesystem stat calls and directory traversal; critical for correct workflow discovery boundaries"
+          },
+          {
+            "name": "discoverProjectDirs",
+            "description": "Builds list of potential project workflow directories by walking up from cwd to git root, checking standard directory names",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Depends on findGitRoot and constructs paths relative to filesystem structure; determines which workflows are discoverable"
+          },
+          {
+            "name": "getAllWorkflowDirs",
+            "description": "Combines discovered project directories with global directories into a single ordered list",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Orchestrates discoverProjectDirs and appends global dirs; order matters for priority resolution"
+          },
+          {
+            "name": "listDir - extension filtering",
+            "description": "Reads a directory and filters files to only those with supported extensions (.js, .ts, .mjs, .mts)",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Reads filesystem via readdir, filters by extension; ensures only valid workflow files are included"
+          },
+          {
+            "name": "listDir - error handling",
+            "description": "Returns an empty array when the directory does not exist or cannot be read",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Graceful error handling is critical for robustness when directories don't exist; silent failure prevents crashes"
+          },
+          {
+            "name": "listWorkflows - deduplication and priority",
+            "description": "Lists all workflows across directories, deduplicating by name with project workflows taking priority over global ones",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Core discovery feature; project-over-global priority and dedup logic is critical for correct user experience"
+          },
+          {
+            "name": "listWorkflows - source labeling",
+            "description": "Correctly labels each workflow as 'project' or 'global' based on its directory origin",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Source labeling affects UI display and user understanding of where workflows come from"
+          },
+          {
+            "name": "listWorkflows - alphabetical sorting",
+            "description": "Returns workflows sorted alphabetically by name",
+            "testType": "integration",
+            "severity": "low",
+            "reason": "Cosmetic ordering for display purposes; not functionally critical"
+          },
+          {
+            "name": "extractMeta - valid meta parsing",
+            "description": "Parses 'export const meta = {...}' from source code and returns the meta object with at minimum a name field",
+            "testType": "unit",
+            "severity": "critical",
+            "reason": "Core business logic that determines if a workflow file is valid; uses regex + brace matching + Function eval; parsing errors break workflow loading"
+          },
+          {
+            "name": "extractMeta - nested braces handling",
+            "description": "Correctly handles nested objects within the meta declaration by tracking brace depth",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "Brace-depth algorithm is error-prone; incorrect parsing would silently break workflow discovery for complex meta objects"
+          },
+          {
+            "name": "extractMeta - missing or invalid meta",
+            "description": "Returns null when source has no meta export, meta doesn't start with '{', meta is unparseable, or meta lacks a name field",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "Error cases must return null gracefully rather than throwing; guards against malformed workflow files"
+          },
+          {
+            "name": "extractBody",
+            "description": "Removes the 'export const meta = {...}' declaration from source, returning only the workflow body code",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Pure string transformation using regex; important for correct workflow execution but logic is straightforward"
+          },
+          {
+            "name": "loadWorkflow - successful loading",
+            "description": "Finds and loads a workflow by name from the first matching directory/extension combination, returning meta and body",
+            "testType": "integration",
+            "severity": "critical",
+            "reason": "Primary entry point for workflow execution; reads files from disk and combines extractMeta + extractBody; failure here breaks all workflow usage"
+          },
+          {
+            "name": "loadWorkflow - not found",
+            "description": "Returns null when no workflow with the given name exists in any searched directory with any valid extension",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Must gracefully handle missing workflows without throwing; important for error UX"
+          },
+          {
+            "name": "loadWorkflow - skips files without valid meta",
+            "description": "Continues searching when a file exists but extractMeta returns null (file lacks valid meta export)",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Ensures partially valid files don't block discovery of valid workflows in later directories"
+          }
+        ]
+      }
+    },
+    {
+      "name": "analyze:src/runtime.ts",
+      "phase": "Analyze",
+      "status": "completed",
+      "startedAt": 1779047643478,
+      "completedAt": 1779047687510,
+      "result": {
+        "file": "src/runtime.ts",
+        "features": [
+          {
+            "name": "createEmitResultTool - object schema passthrough",
+            "description": "When schema.type is 'object', the schema is passed directly as tool parameters without wrapping",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "Core logic for structured output extraction. Incorrect schema handling would cause validation failures or data loss."
+          },
+          {
+            "name": "createEmitResultTool - non-object schema wrapping",
+            "description": "When schema.type is not 'object' (e.g., array, string), wraps in {type:'object', properties:{result:<schema>}, required:['result']}",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "Ensures Claude's object-only tool parameter constraint is satisfied for all schema types."
+          },
+          {
+            "name": "createEmitResultTool - result capture and unwrapping",
+            "description": "execute() captures params directly for object schemas, unwraps .result for non-object schemas, and returns terminate:true",
+            "testType": "unit",
+            "severity": "critical",
+            "reason": "Data integrity concern - incorrect unwrapping could corrupt structured output returned to workflows."
+          },
+          {
+            "name": "createEmitResultTool - getResult before execute",
+            "description": "getResult() returns undefined before execute() is called",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Edge case handling for when the model doesn't call the tool."
+          },
+          {
+            "name": "createRuntime - log delegates to ctx.ui.notify",
+            "description": "log(message) calls ctx.ui.notify(message, 'info')",
+            "testType": "unit",
+            "severity": "low",
+            "reason": "Simple delegation with no transformation logic."
+          },
+          {
+            "name": "createRuntime - phase sets currentPhase",
+            "description": "phase(name) sets the current phase that is used by subsequent agent calls",
+            "testType": "unit",
+            "severity": "low",
+            "reason": "Simple state setter, minimal logic."
+          },
+          {
+            "name": "agent - step lifecycle with schema (structured output)",
+            "description": "Creates a step with 'running' status, calls onStep, creates agent session with emit_result tool, processes prompt, captures result, marks step as 'completed'",
+            "testType": "integration",
+            "severity": "critical",
+            "reason": "Core workflow execution path involving external agent sessions, tool creation, and state management. Orchestrates multiple components."
+          },
+          {
+            "name": "agent - step lifecycle without schema (text response)",
+            "description": "Creates agent session without custom tools, subscribes to message events, captures response text, returns it as result",
+            "testType": "integration",
+            "severity": "critical",
+            "reason": "Core workflow execution path involving external agent sessions and event subscription. Primary way workflows interact with LLMs."
+          },
+          {
+            "name": "agent - abort signal cancellation before start",
+            "description": "If signal is already aborted when agent() is called, throws 'Workflow cancelled' immediately",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "Important for resource cleanup and preventing unnecessary API calls after cancellation."
+          },
+          {
+            "name": "agent - abort signal cancellation during execution",
+            "description": "Registers abort handler that calls session.abort() and session.dispose(), marks step as 'cancelled', throws error",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Ensures proper cleanup of external agent sessions on cancellation. Memory leak potential if mishandled."
+          },
+          {
+            "name": "agent - abort handler cleanup on success",
+            "description": "Removes abort event listener after prompt completes (in finally block) to prevent memory leaks",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Memory management concern - leaked listeners could accumulate over many workflow steps."
+          },
+          {
+            "name": "agent - error handling marks step as failed",
+            "description": "When session.prompt throws (non-abort), step status is set to 'failed' with error message, returns undefined",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Error resilience - workflows must handle LLM failures gracefully without crashing the entire pipeline."
+          },
+          {
+            "name": "agent - emit_result tool not called fallback",
+            "description": "If schema is provided but model doesn't call emit_result, step completes with error message 'emit_result tool was not called' and returns undefined",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Edge case - defensive handling when model misbehaves. Should rarely happen with terminate:true."
+          },
+          {
+            "name": "agent - step name derivation",
+            "description": "Step name uses options.label if provided, otherwise first 60 chars of prompt. Phase uses options.phase or currentPhase.",
+            "testType": "unit",
+            "severity": "low",
+            "reason": "Simple string formatting for display purposes."
+          },
+          {
+            "name": "agent - schema prompt construction",
+            "description": "Constructs prompt with schema instructions appended, different wording for object vs non-object schemas",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Prompt engineering - incorrect instructions could cause model to fail structured output generation."
+          },
+          {
+            "name": "pipeline - sequential stage processing",
+            "description": "Processes items through multiple stages sequentially, passing output of each stage as input to the next",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "Core data transformation pipeline. Incorrect chaining would produce wrong results in multi-stage workflows."
+          },
+          {
+            "name": "pipeline - individual item failure handling",
+            "description": "When a stage throws for one item, logs the error and returns undefined for that item while continuing others",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "Fault tolerance - one failed item shouldn't crash the entire pipeline. Important for batch processing."
+          },
+          {
+            "name": "pipeline - cancellation between stages",
+            "description": "Checks signal.aborted between stages and throws 'Workflow cancelled'",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Ensures long-running pipelines can be cancelled at stage boundaries."
+          },
+          {
+            "name": "pipeline - cancellation within stage tasks",
+            "description": "Checks signal.aborted before and after each task within a stage, throws on cancellation",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Finer-grained cancellation within parallel stage execution."
+          },
+          {
+            "name": "parallel - concurrent execution",
+            "description": "Runs all thunks concurrently via Promise.all and returns results array",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Core concurrency primitive for workflows. Simple but important for parallelizing agent calls."
+          },
+          {
+            "name": "parallel - pre-execution abort check",
+            "description": "If signal is aborted before starting, throws 'Workflow cancelled' without executing thunks",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Prevents wasted work when workflow is already cancelled."
+          },
+          {
+            "name": "createRuntime - returns complete WorkflowRuntime interface",
+            "description": "Returns object with agent, log, phase, parallel, and pipeline functions matching the WorkflowRuntime interface",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Contract verification - ensures runtime satisfies the type interface expected by workflow scripts."
+          }
+        ]
+      }
+    },
+    {
+      "name": "analyze:src/store.ts",
+      "phase": "Analyze",
+      "status": "completed",
+      "startedAt": 1779047643479,
+      "completedAt": 1779047672517,
+      "result": {
+        "file": "src/store.ts",
+        "features": [
+          {
+            "name": "saveRun - persist workflow run to filesystem",
+            "description": "Creates the runs directory recursively and writes a WorkflowRun as formatted JSON to a file named by runId",
+            "testType": "integration",
+            "severity": "critical",
+            "reason": "Core data persistence function that mutates the filesystem (mkdir + writeFile). Loss of run data would break workflow state tracking entirely."
+          },
+          {
+            "name": "loadRun - read workflow run from filesystem",
+            "description": "Reads a JSON file by runId, parses it, and returns the WorkflowRun object. Returns null if the file doesn't exist or is invalid.",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Filesystem read with JSON parsing and error handling. Critical path for retrieving run state. Error case (returning null) must be verified."
+          },
+          {
+            "name": "loadRun - error handling for missing/invalid files",
+            "description": "Returns null when the file does not exist or contains invalid JSON, rather than throwing",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Silent error handling means callers depend on null return for missing runs. If this throws instead, it could crash workflow status checks."
+          },
+          {
+            "name": "listRuns - list and aggregate all workflow runs",
+            "description": "Reads the runs directory, filters for .json files, loads each run, filters out nulls, and sorts by updatedAt descending",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Orchestrates multiple filesystem operations (readdir + multiple readFile). Aggregation logic with filtering and sorting is critical for correct UI display."
+          },
+          {
+            "name": "listRuns - empty/missing directory handling",
+            "description": "Returns an empty array when the runs directory does not exist, rather than throwing",
+            "testType": "integration",
+            "severity": "high",
+            "reason": "Graceful degradation for fresh projects with no runs. If this throws, workflow list commands would crash on first use."
+          },
+          {
+            "name": "listRuns - sorting by updatedAt descending",
+            "description": "Results are sorted with most recently updated runs first (b.updatedAt - a.updatedAt)",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Sort order affects user-facing display. Incorrect ordering would show stale runs first but wouldn't lose data."
+          },
+          {
+            "name": "listRuns - filters only .json files",
+            "description": "Only files ending in .json are processed; other files in the directory are ignored",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "Prevents crashes from non-JSON files (e.g., .DS_Store, temp files) in the runs directory."
+          },
+          {
+            "name": "runsDir - path construction",
+            "description": "Constructs the correct runs directory path by joining cwd with .pi-workflows/.runs",
+            "testType": "unit",
+            "severity": "low",
+            "reason": "Pure path join function with no branching logic. Unlikely to break unless the constant changes."
+          },
+          {
+            "name": "runPath - path construction",
+            "description": "Constructs the correct file path for a run by joining runsDir with {runId}.json",
+            "testType": "unit",
+            "severity": "low",
+            "reason": "Pure path join function. Simple string concatenation with .json extension."
+          },
+          {
+            "name": "saveRun - JSON serialization format",
+            "description": "Serializes the run with 2-space indentation and a trailing newline for human readability",
+            "testType": "integration",
+            "severity": "low",
+            "reason": "Formatting is cosmetic. The file is still valid JSON regardless of indentation, but trailing newline follows POSIX conventions."
+          },
+          {
+            "name": "saveRun and loadRun roundtrip",
+            "description": "A WorkflowRun saved with saveRun can be loaded back with loadRun and the data is identical",
+            "testType": "integration",
+            "severity": "critical",
+            "reason": "End-to-end data integrity test. Serialization/deserialization roundtrip must preserve all fields without data loss or type coercion issues."
+          }
+        ]
+      }
+    },
+    {
+      "name": "analyze:src/types.ts",
+      "phase": "Analyze",
+      "status": "completed",
+      "startedAt": 1779047643480,
+      "completedAt": 1779047674211,
+      "result": {
+        "file": "src/types.ts",
+        "features": [
+          {
+            "name": "WorkflowStepStatus union type validation",
+            "description": "Validate that WorkflowStepStatus only accepts 'pending', 'running', 'completed', 'failed', or 'cancelled' values at runtime boundaries (e.g., deserialization from JSON, API responses)",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "String union types are enforced at compile time but not at runtime boundaries where data enters the system (e.g., from disk, API). Runtime validation guards would need testing."
+          },
+          {
+            "name": "WorkflowRun status union type validation",
+            "description": "Validate that WorkflowRun.status only accepts 'running', 'completed', 'failed', or 'cancelled' values at runtime boundaries",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Status field drives workflow control flow; invalid states at runtime boundaries could cause subtle bugs in workflow execution logic."
+          },
+          {
+            "name": "WorkflowStep state transitions",
+            "description": "Verify that WorkflowStep objects transition through valid status sequences (pending→running→completed/failed, not completed→pending)",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "State machine correctness is critical for workflow reliability. Invalid transitions could leave workflows in inconsistent states."
+          },
+          {
+            "name": "WorkflowRun temporal consistency",
+            "description": "Verify that createdAt <= updatedAt, and step startedAt <= completedAt invariants hold when constructing or mutating WorkflowRun objects",
+            "testType": "unit",
+            "severity": "medium",
+            "reason": "Temporal invariants ensure correct ordering/auditing of workflow execution. Violations indicate logic bugs in workflow management."
+          },
+          {
+            "name": "WorkflowMeta structure conformance",
+            "description": "Verify that WorkflowMeta objects parsed from workflow module files have required 'name' and 'description' fields",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "WorkflowMeta is populated from external workflow files; integration test needed to verify parsing produces conformant objects."
+          },
+          {
+            "name": "ParallelFn contract",
+            "description": "Verify that the parallel function type contract is upheld: accepts array of thunks and returns Promise of all resolved values in order",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "Parallel execution is a core workflow primitive; incorrect behavior (wrong order, swallowed errors, partial results) breaks workflow semantics."
+          },
+          {
+            "name": "PipelineFn contract",
+            "description": "Verify that the pipeline function type contract is upheld: processes items through sequential stages, passing output of one stage as input to the next",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "Pipeline is a core workflow composition primitive; data must flow correctly between stages for workflows to produce correct results."
+          },
+          {
+            "name": "AgentFn contract",
+            "description": "Verify that agent function implementations conform to the AgentFn type: accept prompt string and optional AgentOptions, return Promise",
+            "testType": "integration",
+            "severity": "critical",
+            "reason": "AgentFn is the primary interface for delegating work to AI agents - the core purpose of the system. Failures here break all workflows."
+          },
+          {
+            "name": "WorkflowModule structure",
+            "description": "Verify that WorkflowModule objects contain valid meta (WorkflowMeta) and body (string) when loaded from workflow files",
+            "testType": "integration",
+            "severity": "medium",
+            "reason": "WorkflowModule is constructed from external file system resources; integration test verifies the loading/parsing pipeline produces valid structures."
+          },
+          {
+            "name": "WorkflowRuntime interface completeness",
+            "description": "Verify that WorkflowRuntime implementations provide all required functions (agent, log, phase, parallel, pipeline) and they are callable",
+            "testType": "unit",
+            "severity": "high",
+            "reason": "WorkflowRuntime is the dependency injection surface for all workflows; missing or non-functional members cause runtime crashes in any workflow."
+          }
+        ]
+      }
+    },
+    {
+      "name": "write-report",
+      "phase": "Report",
+      "status": "completed",
+      "startedAt": 1779047687910,
+      "completedAt": 1779047772550,
+      "result": "Written to `test-analysis-report.md` — a structured markdown report with all 94 testable features organized into severity-based tables with File, Feature, Test Type, and Reason columns, plus a recommended implementation order at the bottom."
+    }
+  ],
+  "result": {
+    "summary": {
+      "files_analyzed": 7,
+      "total_features": 94,
+      "unit_tests_needed": 44,
+      "integration_tests_needed": 50
+    },
+    "by_severity": {
+      "critical": 11,
+      "high": 36,
+      "medium": 33,
+      "low": 14
+    },
+    "details": {
+      "critical": [
+        {
+          "name": "executeWorkflow - dynamic function creation",
+          "description": "Creates an AsyncFunction from the workflow body string with specific parameter names (agent, pipeline, parallel, phase, log, args)",
+          "testType": "unit",
+          "severity": "critical",
+          "reason": "Core execution mechanism - dynamically compiling user-provided code into an async function. Incorrect parameter binding would break all workflows.",
+          "file": "src/executor.ts"
+        },
+        {
+          "name": "executeWorkflow - runtime binding",
+          "description": "Passes runtime properties (agent, pipeline, parallel, phase, log) and args as arguments to the dynamically created function",
+          "testType": "unit",
+          "severity": "critical",
+          "reason": "Core business logic ensuring the runtime API is correctly exposed to workflow scripts. Wrong bindings would silently break workflow execution.",
+          "file": "src/executor.ts"
+        },
+        {
+          "name": "workflow tool - start action (successful execution)",
+          "description": "Loads workflow module, parses args, creates run record, sets up runtime with step tracking, executes workflow, saves completed result",
+          "testType": "integration",
+          "severity": "critical",
+          "reason": "Core business logic orchestrating multiple subsystems: module loading, runtime creation, workflow execution, persistent state management, and sub-agent delegation. A failure here breaks the entire plugin.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "extractMeta - valid meta parsing",
+          "description": "Parses 'export const meta = {...}' from source code and returns the meta object with at minimum a name field",
+          "testType": "unit",
+          "severity": "critical",
+          "reason": "Core business logic that determines if a workflow file is valid; uses regex + brace matching + Function eval; parsing errors break workflow loading",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "loadWorkflow - successful loading",
+          "description": "Finds and loads a workflow by name from the first matching directory/extension combination, returning meta and body",
+          "testType": "integration",
+          "severity": "critical",
+          "reason": "Primary entry point for workflow execution; reads files from disk and combines extractMeta + extractBody; failure here breaks all workflow usage",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "createEmitResultTool - result capture and unwrapping",
+          "description": "execute() captures params directly for object schemas, unwraps .result for non-object schemas, and returns terminate:true",
+          "testType": "unit",
+          "severity": "critical",
+          "reason": "Data integrity concern - incorrect unwrapping could corrupt structured output returned to workflows.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "agent - step lifecycle with schema (structured output)",
+          "description": "Creates a step with 'running' status, calls onStep, creates agent session with emit_result tool, processes prompt, captures result, marks step as 'completed'",
+          "testType": "integration",
+          "severity": "critical",
+          "reason": "Core workflow execution path involving external agent sessions, tool creation, and state management. Orchestrates multiple components.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "agent - step lifecycle without schema (text response)",
+          "description": "Creates agent session without custom tools, subscribes to message events, captures response text, returns it as result",
+          "testType": "integration",
+          "severity": "critical",
+          "reason": "Core workflow execution path involving external agent sessions and event subscription. Primary way workflows interact with LLMs.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "saveRun - persist workflow run to filesystem",
+          "description": "Creates the runs directory recursively and writes a WorkflowRun as formatted JSON to a file named by runId",
+          "testType": "integration",
+          "severity": "critical",
+          "reason": "Core data persistence function that mutates the filesystem (mkdir + writeFile). Loss of run data would break workflow state tracking entirely.",
+          "file": "src/store.ts"
+        },
+        {
+          "name": "saveRun and loadRun roundtrip",
+          "description": "A WorkflowRun saved with saveRun can be loaded back with loadRun and the data is identical",
+          "testType": "integration",
+          "severity": "critical",
+          "reason": "End-to-end data integrity test. Serialization/deserialization roundtrip must preserve all fields without data loss or type coercion issues.",
+          "file": "src/store.ts"
+        },
+        {
+          "name": "AgentFn contract",
+          "description": "Verify that agent function implementations conform to the AgentFn type: accept prompt string and optional AgentOptions, return Promise",
+          "testType": "integration",
+          "severity": "critical",
+          "reason": "AgentFn is the primary interface for delegating work to AI agents - the core purpose of the system. Failures here break all workflows.",
+          "file": "src/types.ts"
+        }
+      ],
+      "high": [
+        {
+          "name": "startDashboard server lifecycle",
+          "description": "Creates an HTTP server, listens on specified port, and returns url and stop function",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Core functionality that starts the server, binds to a port, and must return correct URL; involves OS-level networking",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "Template load failure error handling",
+          "description": "Returns 500 status when template file cannot be read from disk",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Error boundary that prevents server crash on missing/unreadable template; users see graceful error instead of hang",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "/api/runs endpoint",
+          "description": "Calls listRuns(cwd) and returns JSON-serialized run data with correct content-type",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Primary data API endpoint; integrates with store module and serializes data over HTTP; critical for dashboard functionality",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "/events SSE endpoint",
+          "description": "Establishes Server-Sent Events connection with correct headers, sends connected event, and manages client set",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Real-time communication channel; must set correct SSE headers, maintain connection, and track clients for broadcast",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "File watcher triggers SSE broadcast",
+          "description": "Watches runsDir for changes and broadcasts 'runs-updated' event to all connected SSE clients",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Core real-time update mechanism; combines fs.watch with SSE broadcast to multiple clients; race conditions possible",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "Server error rejection",
+          "description": "Rejects the returned promise and closes file watcher if server emits an error (e.g., port already in use)",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Critical error path; callers must receive the error to handle port conflicts or permission issues properly",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "executeWorkflow - async execution",
+          "description": "Executes the dynamically created function and returns its result as a Promise",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Tests that actual async workflow bodies execute correctly, including await expressions, and that return values propagate properly through the promise chain.",
+          "file": "src/executor.ts"
+        },
+        {
+          "name": "executeWorkflow - error propagation",
+          "description": "Errors thrown inside the workflow body should propagate as rejected promises",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "Error handling is critical for debugging workflows. Unhandled or swallowed errors would make workflows impossible to debug.",
+          "file": "src/executor.ts"
+        },
+        {
+          "name": "executeWorkflow - syntax error in body",
+          "description": "Handles malformed JavaScript in the body string (syntax errors at function creation time)",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "User-provided workflow bodies may contain syntax errors. The system should throw meaningful errors rather than crash unexpectedly.",
+          "file": "src/executor.ts"
+        },
+        {
+          "name": "workflow tool - cancel action",
+          "description": "Cancels a workflow run by setting its status to 'cancelled', marking all pending/running steps as cancelled, and persisting the updated state",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Mutates persistent state (run status and step statuses). Critical for workflow lifecycle management - incorrect cancellation could leave orphaned processes or corrupted state.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "workflow tool - start action (error handling)",
+          "description": "Handles workflow execution failures: distinguishes between cancellation (signal abort or specific error message) and general failures, updates run status accordingly",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Error handling in async execution paths is critical for reliability. Must correctly differentiate cancellation from failure and persist correct state in both cases.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "step tracking callback",
+          "description": "Runtime callback that updates existing steps (by name+startedAt match) or adds new ones, then persists the run state asynchronously",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "Core state tracking logic that determines whether a step is new or an update. Incorrect deduplication could cause lost progress or duplicate entries. The find-and-assign logic is subtle.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "cancel action - step status filtering",
+          "description": "When cancelling, only steps with 'pending' or 'running' status are set to 'cancelled', leaving completed/failed steps unchanged",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "State transition logic that must preserve completed step results. Incorrectly overwriting completed steps would lose execution history.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "findGitRoot",
+          "description": "Traverses filesystem upward from cwd to locate the nearest .git directory, returns the root or null",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Performs filesystem stat calls and directory traversal; critical for correct workflow discovery boundaries",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "discoverProjectDirs",
+          "description": "Builds list of potential project workflow directories by walking up from cwd to git root, checking standard directory names",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Depends on findGitRoot and constructs paths relative to filesystem structure; determines which workflows are discoverable",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "listDir - error handling",
+          "description": "Returns an empty array when the directory does not exist or cannot be read",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Graceful error handling is critical for robustness when directories don't exist; silent failure prevents crashes",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "listWorkflows - deduplication and priority",
+          "description": "Lists all workflows across directories, deduplicating by name with project workflows taking priority over global ones",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Core discovery feature; project-over-global priority and dedup logic is critical for correct user experience",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "extractMeta - nested braces handling",
+          "description": "Correctly handles nested objects within the meta declaration by tracking brace depth",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "Brace-depth algorithm is error-prone; incorrect parsing would silently break workflow discovery for complex meta objects",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "extractMeta - missing or invalid meta",
+          "description": "Returns null when source has no meta export, meta doesn't start with '{', meta is unparseable, or meta lacks a name field",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "Error cases must return null gracefully rather than throwing; guards against malformed workflow files",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "loadWorkflow - not found",
+          "description": "Returns null when no workflow with the given name exists in any searched directory with any valid extension",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Must gracefully handle missing workflows without throwing; important for error UX",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "loadWorkflow - skips files without valid meta",
+          "description": "Continues searching when a file exists but extractMeta returns null (file lacks valid meta export)",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Ensures partially valid files don't block discovery of valid workflows in later directories",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "createEmitResultTool - object schema passthrough",
+          "description": "When schema.type is 'object', the schema is passed directly as tool parameters without wrapping",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "Core logic for structured output extraction. Incorrect schema handling would cause validation failures or data loss.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "createEmitResultTool - non-object schema wrapping",
+          "description": "When schema.type is not 'object' (e.g., array, string), wraps in {type:'object', properties:{result:<schema>}, required:['result']}",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "Ensures Claude's object-only tool parameter constraint is satisfied for all schema types.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "agent - abort signal cancellation before start",
+          "description": "If signal is already aborted when agent() is called, throws 'Workflow cancelled' immediately",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "Important for resource cleanup and preventing unnecessary API calls after cancellation.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "agent - abort signal cancellation during execution",
+          "description": "Registers abort handler that calls session.abort() and session.dispose(), marks step as 'cancelled', throws error",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Ensures proper cleanup of external agent sessions on cancellation. Memory leak potential if mishandled.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "agent - error handling marks step as failed",
+          "description": "When session.prompt throws (non-abort), step status is set to 'failed' with error message, returns undefined",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Error resilience - workflows must handle LLM failures gracefully without crashing the entire pipeline.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "pipeline - sequential stage processing",
+          "description": "Processes items through multiple stages sequentially, passing output of each stage as input to the next",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "Core data transformation pipeline. Incorrect chaining would produce wrong results in multi-stage workflows.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "pipeline - individual item failure handling",
+          "description": "When a stage throws for one item, logs the error and returns undefined for that item while continuing others",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "Fault tolerance - one failed item shouldn't crash the entire pipeline. Important for batch processing.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "loadRun - read workflow run from filesystem",
+          "description": "Reads a JSON file by runId, parses it, and returns the WorkflowRun object. Returns null if the file doesn't exist or is invalid.",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Filesystem read with JSON parsing and error handling. Critical path for retrieving run state. Error case (returning null) must be verified.",
+          "file": "src/store.ts"
+        },
+        {
+          "name": "loadRun - error handling for missing/invalid files",
+          "description": "Returns null when the file does not exist or contains invalid JSON, rather than throwing",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Silent error handling means callers depend on null return for missing runs. If this throws instead, it could crash workflow status checks.",
+          "file": "src/store.ts"
+        },
+        {
+          "name": "listRuns - list and aggregate all workflow runs",
+          "description": "Reads the runs directory, filters for .json files, loads each run, filters out nulls, and sorts by updatedAt descending",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Orchestrates multiple filesystem operations (readdir + multiple readFile). Aggregation logic with filtering and sorting is critical for correct UI display.",
+          "file": "src/store.ts"
+        },
+        {
+          "name": "listRuns - empty/missing directory handling",
+          "description": "Returns an empty array when the runs directory does not exist, rather than throwing",
+          "testType": "integration",
+          "severity": "high",
+          "reason": "Graceful degradation for fresh projects with no runs. If this throws, workflow list commands would crash on first use.",
+          "file": "src/store.ts"
+        },
+        {
+          "name": "WorkflowStep state transitions",
+          "description": "Verify that WorkflowStep objects transition through valid status sequences (pending→running→completed/failed, not completed→pending)",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "State machine correctness is critical for workflow reliability. Invalid transitions could leave workflows in inconsistent states.",
+          "file": "src/types.ts"
+        },
+        {
+          "name": "ParallelFn contract",
+          "description": "Verify that the parallel function type contract is upheld: accepts array of thunks and returns Promise of all resolved values in order",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "Parallel execution is a core workflow primitive; incorrect behavior (wrong order, swallowed errors, partial results) breaks workflow semantics.",
+          "file": "src/types.ts"
+        },
+        {
+          "name": "PipelineFn contract",
+          "description": "Verify that the pipeline function type contract is upheld: processes items through sequential stages, passing output of one stage as input to the next",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "Pipeline is a core workflow composition primitive; data must flow correctly between stages for workflows to produce correct results.",
+          "file": "src/types.ts"
+        },
+        {
+          "name": "WorkflowRuntime interface completeness",
+          "description": "Verify that WorkflowRuntime implementations provide all required functions (agent, log, phase, parallel, pipeline) and they are callable",
+          "testType": "unit",
+          "severity": "high",
+          "reason": "WorkflowRuntime is the dependency injection surface for all workflows; missing or non-functional members cause runtime crashes in any workflow.",
+          "file": "src/types.ts"
+        }
+      ],
+      "medium": [
+        {
+          "name": "HTML template serving (/ and /index.html)",
+          "description": "Serves the HTML template file with correct content-type header at root and /index.html paths",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Involves file system read and HTTP response; standard serving behavior but essential for dashboard usability",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "SSE client cleanup on disconnect",
+          "description": "Removes client from sseClients set when the request connection closes",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Prevents memory leaks from accumulating stale client references; requires simulating connection lifecycle",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "File watcher graceful failure",
+          "description": "Silently handles the case when runsDir does not exist (watch throws) without crashing the server",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Defensive coding for missing directory; server should still start even if runs directory doesn't exist yet",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "stop() cleanup function",
+          "description": "Closes file watcher, ends all SSE connections, clears client set, and closes the HTTP server",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Resource cleanup preventing port leaks, zombie watchers, and dangling connections; important for test isolation and graceful shutdown",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "Default port and custom port",
+          "description": "Uses port 3847 by default but accepts a custom port parameter; returns the actual bound port in the URL",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Port configuration affects deployment; actual port from server.address() may differ from requested (e.g., port 0 for random)",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "executeWorkflow - undefined args handling",
+          "description": "Handles the case where args parameter is undefined",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Edge case where no arguments are passed to a workflow. Should pass undefined without errors.",
+          "file": "src/executor.ts"
+        },
+        {
+          "name": "formatRun",
+          "description": "Pure function that formats a WorkflowRun object into a human-readable multi-line string with run ID, workflow name, status, timestamps, steps with durations, and optional result",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Pure function with no side effects - transforms structured data to string. Handles optional fields (phase, duration, result) and formats timestamps and durations.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "workflow tool - list action",
+          "description": "Lists available workflows from filesystem discovery and recent runs from the store, formatted with source and directory info, plus the script template",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Depends on listWorkflows (filesystem discovery across multiple dirs) and listRuns (store access). Combines multiple external data sources into formatted output.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "workflow tool - status action",
+          "description": "Retrieves and formats a specific workflow run by run_id, returning error if run_id missing or run not found",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Requires loading run state from persistent store (loadRun). Needs validation of run_id parameter and handling of missing runs.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "workflow tool - start action (workflow not found)",
+          "description": "When requested workflow doesn't exist, returns helpful error with available workflows list, project dir path, and creation template",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Depends on loadWorkflow and listWorkflows for filesystem discovery, plus mkdir for directory creation. Important for UX but not data-critical.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "workflow tool - args JSON parsing",
+          "description": "Parses the optional 'args' string parameter as JSON, returning an error if invalid JSON is provided",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Input validation logic - parse user-provided JSON string. Invalid input must produce a clear error rather than crashing the workflow start.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "dashboard command",
+          "description": "Registers a 'dashboard' command that starts a web dashboard (singleton pattern) and notifies the user of the URL, preventing duplicate instances",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Starts an HTTP server (startDashboard) and manages singleton state. Needs to verify deduplication logic and proper server lifecycle.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "run creation and initialization",
+          "description": "Creates a new WorkflowRun with randomUUID, workflow name, 'running' status, parsed args, timestamps, and empty steps array before execution begins",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Correct initialization of run state is important for downstream tracking. Verifying the shape and defaults ensures store consistency.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "getAllWorkflowDirs",
+          "description": "Combines discovered project directories with global directories into a single ordered list",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Orchestrates discoverProjectDirs and appends global dirs; order matters for priority resolution",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "listDir - extension filtering",
+          "description": "Reads a directory and filters files to only those with supported extensions (.js, .ts, .mjs, .mts)",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Reads filesystem via readdir, filters by extension; ensures only valid workflow files are included",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "listWorkflows - source labeling",
+          "description": "Correctly labels each workflow as 'project' or 'global' based on its directory origin",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Source labeling affects UI display and user understanding of where workflows come from",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "extractBody",
+          "description": "Removes the 'export const meta = {...}' declaration from source, returning only the workflow body code",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Pure string transformation using regex; important for correct workflow execution but logic is straightforward",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "createEmitResultTool - getResult before execute",
+          "description": "getResult() returns undefined before execute() is called",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Edge case handling for when the model doesn't call the tool.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "agent - abort handler cleanup on success",
+          "description": "Removes abort event listener after prompt completes (in finally block) to prevent memory leaks",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Memory management concern - leaked listeners could accumulate over many workflow steps.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "agent - emit_result tool not called fallback",
+          "description": "If schema is provided but model doesn't call emit_result, step completes with error message 'emit_result tool was not called' and returns undefined",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Edge case - defensive handling when model misbehaves. Should rarely happen with terminate:true.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "agent - schema prompt construction",
+          "description": "Constructs prompt with schema instructions appended, different wording for object vs non-object schemas",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Prompt engineering - incorrect instructions could cause model to fail structured output generation.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "pipeline - cancellation between stages",
+          "description": "Checks signal.aborted between stages and throws 'Workflow cancelled'",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Ensures long-running pipelines can be cancelled at stage boundaries.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "pipeline - cancellation within stage tasks",
+          "description": "Checks signal.aborted before and after each task within a stage, throws on cancellation",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Finer-grained cancellation within parallel stage execution.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "parallel - concurrent execution",
+          "description": "Runs all thunks concurrently via Promise.all and returns results array",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Core concurrency primitive for workflows. Simple but important for parallelizing agent calls.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "parallel - pre-execution abort check",
+          "description": "If signal is aborted before starting, throws 'Workflow cancelled' without executing thunks",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Prevents wasted work when workflow is already cancelled.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "createRuntime - returns complete WorkflowRuntime interface",
+          "description": "Returns object with agent, log, phase, parallel, and pipeline functions matching the WorkflowRuntime interface",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Contract verification - ensures runtime satisfies the type interface expected by workflow scripts.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "listRuns - sorting by updatedAt descending",
+          "description": "Results are sorted with most recently updated runs first (b.updatedAt - a.updatedAt)",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Sort order affects user-facing display. Incorrect ordering would show stale runs first but wouldn't lose data.",
+          "file": "src/store.ts"
+        },
+        {
+          "name": "listRuns - filters only .json files",
+          "description": "Only files ending in .json are processed; other files in the directory are ignored",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "Prevents crashes from non-JSON files (e.g., .DS_Store, temp files) in the runs directory.",
+          "file": "src/store.ts"
+        },
+        {
+          "name": "WorkflowStepStatus union type validation",
+          "description": "Validate that WorkflowStepStatus only accepts 'pending', 'running', 'completed', 'failed', or 'cancelled' values at runtime boundaries (e.g., deserialization from JSON, API responses)",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "String union types are enforced at compile time but not at runtime boundaries where data enters the system (e.g., from disk, API). Runtime validation guards would need testing.",
+          "file": "src/types.ts"
+        },
+        {
+          "name": "WorkflowRun status union type validation",
+          "description": "Validate that WorkflowRun.status only accepts 'running', 'completed', 'failed', or 'cancelled' values at runtime boundaries",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Status field drives workflow control flow; invalid states at runtime boundaries could cause subtle bugs in workflow execution logic.",
+          "file": "src/types.ts"
+        },
+        {
+          "name": "WorkflowRun temporal consistency",
+          "description": "Verify that createdAt <= updatedAt, and step startedAt <= completedAt invariants hold when constructing or mutating WorkflowRun objects",
+          "testType": "unit",
+          "severity": "medium",
+          "reason": "Temporal invariants ensure correct ordering/auditing of workflow execution. Violations indicate logic bugs in workflow management.",
+          "file": "src/types.ts"
+        },
+        {
+          "name": "WorkflowMeta structure conformance",
+          "description": "Verify that WorkflowMeta objects parsed from workflow module files have required 'name' and 'description' fields",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "WorkflowMeta is populated from external workflow files; integration test needed to verify parsing produces conformant objects.",
+          "file": "src/types.ts"
+        },
+        {
+          "name": "WorkflowModule structure",
+          "description": "Verify that WorkflowModule objects contain valid meta (WorkflowMeta) and body (string) when loaded from workflow files",
+          "testType": "integration",
+          "severity": "medium",
+          "reason": "WorkflowModule is constructed from external file system resources; integration test verifies the loading/parsing pipeline produces valid structures.",
+          "file": "src/types.ts"
+        }
+      ],
+      "low": [
+        {
+          "name": "getTemplatePath",
+          "description": "Computes the path to the HTML template file relative to the module location",
+          "testType": "unit",
+          "severity": "low",
+          "reason": "Pure path computation with no side effects; unlikely to break unless file structure changes",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "404 handling for unknown routes",
+          "description": "Returns 404 status with 'Not found' body for any unrecognized URL path",
+          "testType": "integration",
+          "severity": "low",
+          "reason": "Standard fallback behavior; simple but ensures no unintended route exposure",
+          "file": "src/dashboard.ts"
+        },
+        {
+          "name": "AsyncFunction constructor",
+          "description": "The AsyncFunction reference is correctly derived from async function prototype",
+          "testType": "unit",
+          "severity": "low",
+          "reason": "Simple constant derivation that is unlikely to change, but validates the metaprogramming approach works correctly.",
+          "file": "src/executor.ts"
+        },
+        {
+          "name": "session_start - workflow count status",
+          "description": "On session start, discovers workflows in cwd and sets a UI status indicator showing the count",
+          "testType": "integration",
+          "severity": "low",
+          "reason": "Cosmetic UI status update. Depends on filesystem discovery but failure has no functional impact on the extension.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "session_start - ensure project workflow dir",
+          "description": "On session start, creates the project workflow directory (.pi/workflows/) with recursive mkdir, silently catching errors",
+          "testType": "integration",
+          "severity": "low",
+          "reason": "Filesystem side effect with error suppression. Important for first-run experience but failure is gracefully handled and non-critical.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "workflow command - interactive selection",
+          "description": "Registers a 'workflow' command that either lists workflows interactively (with ui.select) or sends a user message to trigger the workflow tool with parsed arguments",
+          "testType": "integration",
+          "severity": "low",
+          "reason": "UI interaction layer that delegates to the workflow tool via sendUserMessage. Logic is thin - mostly string parsing and UI calls.",
+          "file": "src/index.ts"
+        },
+        {
+          "name": "getProjectWorkflowDir",
+          "description": "Returns the project workflow directory path by joining cwd with '.pi/workflows'",
+          "testType": "unit",
+          "severity": "low",
+          "reason": "Pure function with simple path joining, no side effects or complex logic",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "listWorkflows - alphabetical sorting",
+          "description": "Returns workflows sorted alphabetically by name",
+          "testType": "integration",
+          "severity": "low",
+          "reason": "Cosmetic ordering for display purposes; not functionally critical",
+          "file": "src/loader.ts"
+        },
+        {
+          "name": "createRuntime - log delegates to ctx.ui.notify",
+          "description": "log(message) calls ctx.ui.notify(message, 'info')",
+          "testType": "unit",
+          "severity": "low",
+          "reason": "Simple delegation with no transformation logic.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "createRuntime - phase sets currentPhase",
+          "description": "phase(name) sets the current phase that is used by subsequent agent calls",
+          "testType": "unit",
+          "severity": "low",
+          "reason": "Simple state setter, minimal logic.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "agent - step name derivation",
+          "description": "Step name uses options.label if provided, otherwise first 60 chars of prompt. Phase uses options.phase or currentPhase.",
+          "testType": "unit",
+          "severity": "low",
+          "reason": "Simple string formatting for display purposes.",
+          "file": "src/runtime.ts"
+        },
+        {
+          "name": "runsDir - path construction",
+          "description": "Constructs the correct runs directory path by joining cwd with .pi-workflows/.runs",
+          "testType": "unit",
+          "severity": "low",
+          "reason": "Pure path join function with no branching logic. Unlikely to break unless the constant changes.",
+          "file": "src/store.ts"
+        },
+        {
+          "name": "runPath - path construction",
+          "description": "Constructs the correct file path for a run by joining runsDir with {runId}.json",
+          "testType": "unit",
+          "severity": "low",
+          "reason": "Pure path join function. Simple string concatenation with .json extension.",
+          "file": "src/store.ts"
+        },
+        {
+          "name": "saveRun - JSON serialization format",
+          "description": "Serializes the run with 2-space indentation and a trailing newline for human readability",
+          "testType": "integration",
+          "severity": "low",
+          "reason": "Formatting is cosmetic. The file is still valid JSON regardless of indentation, but trailing newline follows POSIX conventions.",
+          "file": "src/store.ts"
+        }
+      ]
+    }
+  }
+}
