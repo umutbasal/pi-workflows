@@ -80,12 +80,18 @@ function createEmitResultTool(schema: Record<string, unknown>) {
 export function createRuntime(
   ctx: ExtensionContext,
   onStep: (step: WorkflowStep) => void,
+  signal?: AbortSignal,
 ): WorkflowRuntime {
   const log: LogFn = (message) => {
     ctx.ui.notify(message, "info");
   };
 
   const agent: AgentFn = async (prompt: string, options?: AgentOptions) => {
+    // Check if already cancelled before starting
+    if (signal?.aborted) {
+      throw new Error("Workflow cancelled");
+    }
+
     const step: WorkflowStep = {
       name: options?.label ?? prompt.slice(0, 60),
       phase: options?.phase,
@@ -108,6 +114,10 @@ export function createRuntime(
           customTools: [emitResultTool],
         });
 
+        // Abort the session when the signal fires
+        const abortHandler = () => { session.abort(); session.dispose(); };
+        signal?.addEventListener("abort", abortHandler, { once: true });
+
         const isTopLevelObject = options.schema.type === "object";
         const schemaPrompt =
           `${prompt}\n\n` +
@@ -119,8 +129,20 @@ export function createRuntime(
             : `Call emit_result with a single "result" parameter matching this schema:\n`) +
           `${JSON.stringify(options.schema, null, 2)}`;
 
-        await session.prompt(schemaPrompt);
-        session.dispose();
+        try {
+          await session.prompt(schemaPrompt);
+        } finally {
+          signal?.removeEventListener("abort", abortHandler);
+          session.dispose();
+        }
+
+        // Check if cancelled after the prompt
+        if (signal?.aborted) {
+          step.status = "cancelled";
+          step.completedAt = Date.now();
+          onStep(step);
+          throw new Error("Workflow cancelled");
+        }
 
         const result = getResult();
         if (result !== undefined) {
@@ -146,6 +168,10 @@ export function createRuntime(
         model: ctx.model,
       });
 
+      // Abort the session when the signal fires
+      const abortHandler = () => { session.abort(); session.dispose(); };
+      signal?.addEventListener("abort", abortHandler, { once: true });
+
       let responseText = "";
       session.subscribe((event) => {
         if (event.type === "message_end" && "message" in event) {
@@ -160,8 +186,20 @@ export function createRuntime(
         }
       });
 
-      await session.prompt(prompt);
-      session.dispose();
+      try {
+        await session.prompt(prompt);
+      } finally {
+        signal?.removeEventListener("abort", abortHandler);
+        session.dispose();
+      }
+
+      // Check if cancelled after the prompt
+      if (signal?.aborted) {
+        step.status = "cancelled";
+        step.completedAt = Date.now();
+        onStep(step);
+        throw new Error("Workflow cancelled");
+      }
 
       step.status = "completed";
       step.completedAt = Date.now();
@@ -169,6 +207,13 @@ export function createRuntime(
       onStep(step);
       return responseText;
     } catch (err: any) {
+      if (signal?.aborted) {
+        step.status = "cancelled";
+        step.completedAt = Date.now();
+        step.error = "Cancelled";
+        onStep(step);
+        throw new Error("Workflow cancelled");
+      }
       step.status = "failed";
       step.completedAt = Date.now();
       step.error = err?.message ?? String(err);
@@ -181,13 +226,24 @@ export function createRuntime(
     let results: any[] = items.map((item) => ({ _item: item, _result: item }));
 
     for (const stage of stages) {
+      // Check cancellation between stages
+      if (signal?.aborted) {
+        throw new Error("Workflow cancelled");
+      }
+
       const tasks = results.map(async (entry, index) => {
         const input = entry._result;
         const item = entry._item;
         try {
+          if (signal?.aborted) {
+            throw new Error("Workflow cancelled");
+          }
           const output = await stage(input, item, index);
           return { _item: item, _result: output };
         } catch (err) {
+          if (signal?.aborted) {
+            throw new Error("Workflow cancelled");
+          }
           log(`Pipeline stage failed for item ${index}: ${err}`);
           return { _item: item, _result: undefined };
         }
@@ -199,6 +255,11 @@ export function createRuntime(
   };
 
   const step: StepFn = async (name, phase, fn) => {
+    // Check cancellation before starting step
+    if (signal?.aborted) {
+      throw new Error("Workflow cancelled");
+    }
+
     const s: WorkflowStep = {
       name,
       phase,
@@ -209,12 +270,25 @@ export function createRuntime(
 
     try {
       const result = await fn();
+      if (signal?.aborted) {
+        s.status = "cancelled";
+        s.completedAt = Date.now();
+        onStep(s);
+        throw new Error("Workflow cancelled");
+      }
       s.status = "completed";
       s.completedAt = Date.now();
       s.result = result;
       onStep(s);
       return result;
     } catch (err: any) {
+      if (signal?.aborted) {
+        s.status = "cancelled";
+        s.completedAt = Date.now();
+        s.error = "Cancelled";
+        onStep(s);
+        throw new Error("Workflow cancelled");
+      }
       s.status = "failed";
       s.completedAt = Date.now();
       s.error = err?.message ?? String(err);
