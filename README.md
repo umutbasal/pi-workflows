@@ -3,6 +3,7 @@
 A [pi](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) extension that adds workflow orchestration — define multi-step agent pipelines as simple JavaScript scripts and run them from the TUI.
 
 ## Usage
+
 - Just prompt: “/skill:create-workflow Create a workflow to analyze each file and decide what kind of tests are needed for each feature (unit or integration). Group by severity.”
 - It will create a workflow and then execute it via /workflows, or the AI can automatically run it.
 
@@ -135,45 +136,43 @@ export const meta = {
   description: "Analyze source files and decide what to test, how, and priority",
 };
 
-export default async function ({ agent, pipeline, log }) {
-  const files = await agent("List all source files in src/. Return only the file paths.", {
-    schema: { type: "array", items: { type: "string" } },
-  });
+const files = await agent("List all source files in src/. Return only the file paths.", {
+  schema: { type: "array", items: { type: "string" } },
+});
 
-  log(`Found ${files.length} files to analyze`);
+log(`Found ${files.length} files to analyze`);
 
-  const plans = await pipeline(files, (file) =>
-    agent(
-      `Analyze ${file} and decide:
-      - What should be tested?
-      - Test type: unit or integration?
-      - Priority: high, medium, or low?
-      Return a plan for this file.`,
-      {
-        label: `plan:${file}`,
-        schema: {
-          type: "object",
-          properties: {
-            file: { type: "string" },
-            tests: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  description: { type: "string" },
-                  type: { type: "string", enum: ["unit", "integration"] },
-                  priority: { type: "string", enum: ["high", "medium", "low"] },
-                },
+const plans = await pipeline(files, (file) =>
+  agent(
+    `Analyze ${file} and decide:
+    - What should be tested?
+    - Test type: unit or integration?
+    - Priority: high, medium, or low?
+    Return a plan for this file.`,
+    {
+      label: `plan:${file}`,
+      schema: {
+        type: "object",
+        properties: {
+          file: { type: "string" },
+          tests: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                description: { type: "string" },
+                type: { type: "string", enum: ["unit", "integration"] },
+                priority: { type: "string", enum: ["high", "medium", "low"] },
               },
             },
           },
         },
-      }
-    )
-  );
+      },
+    }
+  )
+);
 
-  return plans;
-}
+return plans;
 ```
 
 Run it:
@@ -209,11 +208,13 @@ Use the workflow tool to start "my-workflow" with args: {"dir": "./src"}
 ```
 src/
 ├── index.ts          # Extension entry point, tool & command registration
-├── loader.ts         # Workflow discovery & module loading
-├── runtime.ts        # Agent, pipeline, and log runtime creation
+├── loader.ts         # Workflow discovery, meta extraction & source loading
+├── executor.ts       # Script execution engine (AsyncFunction with globals)
+├── runtime.ts        # Agent, pipeline, parallel, phase, log runtime creation
 ├── store.ts          # Run persistence (JSON files in .pi-workflows/.runs/)
 ├── types.ts          # TypeScript interfaces
-├── runtime.test.ts   # Unit tests for runtime (agent, pipeline, log)
+├── runtime.test.ts   # Unit tests for runtime + executor
+├── loader.test.ts    # Unit tests for meta/body extraction
 ├── store.test.ts     # Unit tests for persistence layer
 └── format.test.ts    # Unit tests for run formatting
 ```
@@ -222,12 +223,6 @@ src/
 
 ```bash
 bun test
-```
-
-```
- 39 pass, 0 fail
- 75 expect() calls
- Ran 39 tests across 3 files
 ```
 
 ## Workflow Discovery Order
