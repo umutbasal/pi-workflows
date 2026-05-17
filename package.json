@@ -19,6 +19,7 @@
     "package.json"
   ],
   "devDependencies": {
+    "@babel/parser": "7.29.2",
     "@types/bun": "latest"
   },
   "peerDependencies": {
