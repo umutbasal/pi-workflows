@@ -108,6 +108,22 @@
       margin-left: auto;
       font-size: 12px;
       color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .time-sequential {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .time-arrow {
+      color: var(--good);
+      font-size: 14px;
+    }
+    .time-actual {
+      color: var(--good);
+      font-weight: 600;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
     .badge {
@@ -385,11 +401,24 @@
 
     function renderRunHeader(run) {
       const duration = totalDuration(run);
+      const seqDuration = sequentialDuration(run);
+      let timeHtml = '';
+      if (duration) {
+        if (seqDuration && seqDuration !== duration) {
+          timeHtml = '<span class="run-detail-time">'
+            + '<span class="time-sequential">' + seqDuration + '</span>'
+            + '<span class="time-arrow">→</span>'
+            + '<span class="time-actual">' + duration + '</span>'
+            + '</span>';
+        } else {
+          timeHtml = '<span class="run-detail-time"><span class="time-actual">' + duration + '</span></span>';
+        }
+      }
       return '<div class="run-detail-header">'
         + '<span class="badge ' + run.status + '">' + esc(run.status) + '</span>'
         + '<span class="run-detail-title">' + esc(run.workflow) + '</span>'
         + '<span class="run-detail-id">' + esc(run.runId.slice(0, 8)) + '</span>'
-        + (duration ? '<span class="run-detail-time">' + duration + '</span>' : '')
+        + timeHtml
         + '</div>';
     }
 
@@ -502,9 +531,20 @@
       if (starts.length === 0) return '';
       const first = Math.min(...starts);
       const last = ends.length > 0 ? Math.max(...ends) : Date.now();
-      const secs = (last - first) / 1000;
+      return formatDuration((last - first) / 1000);
+    }
+
+    function sequentialDuration(run) {
+      const stepsWithDuration = run.steps.filter(s => s.startedAt && s.completedAt);
+      if (stepsWithDuration.length === 0) return '';
+      const totalMs = stepsWithDuration.reduce((sum, s) => sum + (s.completedAt - s.startedAt), 0);
+      return formatDuration(totalMs / 1000);
+    }
+
+    function formatDuration(secs) {
       if (secs < 60) return secs.toFixed(0) + 's';
-      return (secs / 60).toFixed(1) + 'm';
+      if (secs < 3600) return (secs / 60).toFixed(1) + 'm';
+      return (secs / 3600).toFixed(1) + 'h';
     }
 
     function relativeTime(ts) {
