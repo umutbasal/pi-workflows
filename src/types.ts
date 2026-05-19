@@ -49,6 +49,12 @@ export interface WorkflowStep {
   completedAt?: number;
   result?: unknown;
   error?: string;
+  toolUses?: number;
+  turnCount?: number;
+  tokens?: { input: number; output: number; cacheWrite: number };
+  compactionCount?: number;
+  activity?: string;
+  modelName?: string;
 }
 
 export interface WorkflowRun {

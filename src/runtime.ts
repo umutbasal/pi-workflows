@@ -11,6 +11,9 @@ import type {
   WorkflowRuntime,
   WorkflowStep,
 } from "./types";
+import type { WorkflowActivity } from "./activity";
+import { createActivityTracker } from "./activity";
+import { describeActivity } from "./ui/format.js";
 
 /**
  * Create a custom tool that forces the model to emit structured output
@@ -82,6 +85,7 @@ export function createRuntime(
   ctx: ExtensionContext,
   onStep: (step: WorkflowStep) => void,
   signal?: AbortSignal,
+  onActivityChange?: (stepName: string, activity: WorkflowActivity) => void,
 ): WorkflowRuntime {
   let currentPhase: string | undefined;
 
@@ -94,7 +98,6 @@ export function createRuntime(
   };
 
   const agent: AgentFn = async (prompt: string, options?: AgentOptions) => {
-    // Check if already cancelled before starting
     if (signal?.aborted) {
       throw new Error("Workflow cancelled");
     }
@@ -107,13 +110,20 @@ export function createRuntime(
     };
     onStep(step);
 
+    const stepName = step.name;
+    let activityState: WorkflowActivity | undefined;
+
+    const streamUpdate = () => {
+      if (activityState && onActivityChange) {
+        onActivityChange(stepName, activityState);
+      }
+    };
+
     try {
-      // When a schema is provided, use tool-use pattern for reliable structured output.
-      // The emit_result tool's parameters ARE the schema, so the model's tool-calling
-      // mechanism validates the JSON. If validation fails, the framework returns an
-      // error tool result and the model retries automatically.
       if (options?.schema) {
         const { tool: emitResultTool, getResult } = createEmitResultTool(options.schema);
+        const { state, callbacks } = createActivityTracker(undefined, streamUpdate);
+        activityState = state;
 
         const { session } = await createAgentSession({
           cwd: ctx.cwd,
@@ -121,7 +131,34 @@ export function createRuntime(
           customTools: [emitResultTool],
         });
 
-        // Abort the session when the signal fires
+        callbacks.onSessionCreated(session);
+        session.subscribe((event) => {
+          if (event.type === "tool_execution_start") {
+            callbacks.onToolActivity({ type: "start", toolName: event.toolName });
+          } else if (event.type === "tool_execution_end") {
+            callbacks.onToolActivity({ type: "end", toolName: event.toolName });
+          } else if (event.type === "message_end") {
+            const msg = event.message as any;
+            if (msg?.role === "assistant" && msg.usage) {
+              callbacks.onAssistantUsage({
+                input: msg.usage.input_tokens ?? 0,
+                output: msg.usage.output_tokens ?? 0,
+                cacheWrite: msg.usage.cache_write_input_tokens ?? 0,
+              });
+            }
+            if (msg?.role === "assistant" && Array.isArray(msg.content)) {
+              for (const block of msg.content) {
+                if (block.type === "text") {
+                  callbacks.onTextDelta("", block.text);
+                }
+              }
+            }
+          } else if (event.type === "turn_end") {
+            const turnCount = (session as any).turnCount ?? state.turnCount;
+            callbacks.onTurnEnd(turnCount);
+          }
+        });
+
         const abortHandler = () => { session.abort(); session.dispose(); };
         signal?.addEventListener("abort", abortHandler, { once: true });
 
@@ -143,10 +180,15 @@ export function createRuntime(
           session.dispose();
         }
 
-        // Check if cancelled after the prompt
         if (signal?.aborted) {
           step.status = "cancelled";
           step.completedAt = Date.now();
+          if (activityState) {
+            step.toolUses = activityState.toolUses;
+            step.turnCount = activityState.turnCount;
+            step.tokens = { ...activityState.lifetimeUsage };
+            step.activity = describeActivity(activityState.activeTools, activityState.responseText);
+          }
           onStep(step);
           throw new Error("Workflow cancelled");
         }
@@ -156,42 +198,67 @@ export function createRuntime(
           step.status = "completed";
           step.completedAt = Date.now();
           step.result = result;
+          if (activityState) {
+            step.toolUses = activityState.toolUses;
+            step.turnCount = activityState.turnCount;
+            step.tokens = { ...activityState.lifetimeUsage };
+            step.activity = describeActivity(activityState.activeTools, activityState.responseText);
+          }
           onStep(step);
           return result;
         }
 
-        // Fallback: tool wasn't called. This shouldn't happen with terminate:true
-        // but handle gracefully.
         step.status = "completed";
         step.completedAt = Date.now();
         step.error = "emit_result tool was not called";
+        if (activityState) {
+          step.toolUses = activityState.toolUses;
+          step.turnCount = activityState.turnCount;
+          step.tokens = { ...activityState.lifetimeUsage };
+        }
         onStep(step);
         return undefined;
       }
 
       // No schema: standard text response mode
+      const { state, callbacks } = createActivityTracker(undefined, streamUpdate);
+      activityState = state;
+
       const { session } = await createAgentSession({
         cwd: ctx.cwd,
         model: ctx.model,
       });
 
-      // Abort the session when the signal fires
-      const abortHandler = () => { session.abort(); session.dispose(); };
-      signal?.addEventListener("abort", abortHandler, { once: true });
-
-      let responseText = "";
+      callbacks.onSessionCreated(session);
       session.subscribe((event) => {
-        if (event.type === "message_end" && "message" in event) {
+        if (event.type === "tool_execution_start") {
+          callbacks.onToolActivity({ type: "start", toolName: event.toolName });
+        } else if (event.type === "tool_execution_end") {
+          callbacks.onToolActivity({ type: "end", toolName: event.toolName });
+        } else if (event.type === "message_end") {
           const msg = event.message as any;
+          if (msg?.role === "assistant" && msg.usage) {
+            callbacks.onAssistantUsage({
+              input: msg.usage.input_tokens ?? 0,
+              output: msg.usage.output_tokens ?? 0,
+              cacheWrite: msg.usage.cache_write_input_tokens ?? 0,
+            });
+          }
           if (msg?.role === "assistant" && Array.isArray(msg.content)) {
             for (const block of msg.content) {
               if (block.type === "text") {
-                responseText = block.text;
+                callbacks.onTextDelta("", block.text);
               }
             }
           }
+        } else if (event.type === "turn_end") {
+          const turnCount = (session as any).turnCount ?? state.turnCount;
+          callbacks.onTurnEnd(turnCount);
         }
       });
+
+      const abortHandler = () => { session.abort(); session.dispose(); };
+      signal?.addEventListener("abort", abortHandler, { once: true });
 
       try {
         await session.prompt(prompt);
@@ -200,30 +267,49 @@ export function createRuntime(
         session.dispose();
       }
 
-      // Check if cancelled after the prompt
       if (signal?.aborted) {
         step.status = "cancelled";
         step.completedAt = Date.now();
+        if (activityState) {
+          step.toolUses = activityState.toolUses;
+          step.turnCount = activityState.turnCount;
+          step.tokens = { ...activityState.lifetimeUsage };
+          step.activity = describeActivity(activityState.activeTools, activityState.responseText);
+        }
         onStep(step);
         throw new Error("Workflow cancelled");
       }
 
       step.status = "completed";
       step.completedAt = Date.now();
-      step.result = responseText;
+      step.result = state.responseText;
+      step.toolUses = activityState.toolUses;
+      step.turnCount = activityState.turnCount;
+      step.tokens = { ...activityState.lifetimeUsage };
+      step.activity = describeActivity(activityState.activeTools, activityState.responseText);
       onStep(step);
-      return responseText;
+      return state.responseText;
     } catch (err: any) {
       if (signal?.aborted) {
         step.status = "cancelled";
         step.completedAt = Date.now();
         step.error = "Cancelled";
+        if (activityState) {
+          step.toolUses = activityState.toolUses;
+          step.turnCount = activityState.turnCount;
+          step.tokens = { ...activityState.lifetimeUsage };
+        }
         onStep(step);
         throw new Error("Workflow cancelled");
       }
       step.status = "failed";
       step.completedAt = Date.now();
       step.error = err?.message ?? String(err);
+      if (activityState) {
+        step.toolUses = activityState.toolUses;
+        step.turnCount = activityState.turnCount;
+        step.tokens = { ...activityState.lifetimeUsage };
+      }
       onStep(step);
       return undefined;
     }

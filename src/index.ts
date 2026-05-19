@@ -8,6 +8,9 @@ import { listWorkflows, loadWorkflow, getProjectWorkflowDir, extractArgsHint } f
 import { createRuntime } from "./runtime";
 import { listRuns, loadRun, saveRun } from "./store";
 import type { WorkflowRun, WorkflowStep } from "./types";
+import type { WorkflowActivity } from "./activity";
+import { WorkflowWidget } from "./ui/widget";
+import type { UICtx } from "./ui/widget";
 
 const WORKFLOW_PROMPT_GUIDELINES = [
   "Use `action: 'start'` to execute a workflow, `action: 'list'` to see available ones.",
@@ -67,17 +70,20 @@ const WORKFLOW_SCRIPT_TEMPLATE = `// Globals: agent, pipeline, parallel, phase, 
 
 
 export default function piWorkflows(pi: ExtensionAPI) {
-  pi.on("session_start", async (_event, ctx) => {
-    const workflows = await listWorkflows(ctx.cwd);
-    if (workflows.length > 0) {
-      ctx.ui.setStatus("workflows", `${workflows.length} workflow(s)`);
-    }
-  });
+  let currentRun: WorkflowRun | null = null;
+  const activities = new Map<string, WorkflowActivity>();
+  let workflowWidget: WorkflowWidget | null = null;
 
-  // Ensure project workflow dir exists when creating workflows
   pi.on("session_start", async (_event, ctx) => {
     const { mkdir } = await import("fs/promises");
     await mkdir(getProjectWorkflowDir(ctx.cwd), { recursive: true }).catch(() => {});
+  });
+
+  pi.on("tool_execution_start", async (_event, ctx) => {
+    if (workflowWidget && currentRun) {
+      workflowWidget.setUICtx(ctx.ui as UICtx);
+      workflowWidget.onTurnStart();
+    }
   });
 
   pi.registerTool({
@@ -97,10 +103,14 @@ export default function piWorkflows(pi: ExtensionAPI) {
           Type.Literal("status"),
           Type.Literal("list"),
           Type.Literal("cancel"),
+          Type.Literal("view"),
         ]),
       ),
       run_id: Type.Optional(
-        Type.String({ description: "Run ID for status/cancel actions" }),
+        Type.String({ description: "Run ID for status/cancel/view actions" }),
+      ),
+      step: Type.Optional(
+        Type.String({ description: "Step name to view (used with action: 'view')" }),
       ),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -160,6 +170,35 @@ export default function piWorkflows(pi: ExtensionAPI) {
         return { content: [{ type: "text", text: `Cancelled run ${run.runId}` }], details: {} };
       }
 
+      if (action === "view") {
+        if (!params.run_id) {
+          return { content: [{ type: "text" as const, text: "Error: run_id required for view" }], details: {} };
+        }
+        const run = await loadRun(cwd, params.run_id);
+        if (!run) {
+          return { content: [{ type: "text" as const, text: `Run ${params.run_id} not found` }], details: {} };
+        }
+
+        const stepName = params.step;
+        if (!stepName) {
+          if (run.steps.length === 0) {
+            return { content: [{ type: "text" as const, text: `No steps in run ${run.runId}` }], details: {} };
+          }
+          const stepOptions = run.steps.map(s => `${s.name} [${s.status}]${s.phase ? ` (${s.phase})` : ""}`);
+          const selected = await ctx.ui.select("Select step to view", stepOptions);
+          if (!selected) return { content: [{ type: "text" as const, text: "No step selected." }], details: {} };
+          const idx = stepOptions.indexOf(selected);
+          if (idx < 0) return { content: [{ type: "text" as const, text: "Step not found." }], details: {} };
+          return await viewStepConversation(ctx, run, run.steps[idx]!);
+        }
+
+        const step = run.steps.find(s => s.name === stepName);
+        if (!step) {
+          return { content: [{ type: "text" as const, text: `Step "${stepName}" not found in run ${run.runId}` }], details: {} };
+        }
+        return await viewStepConversation(ctx, run, step);
+      }
+
       // action === "start"
       const mod = await loadWorkflow(cwd, params.workflow);
       if (!mod) {
@@ -201,6 +240,18 @@ export default function piWorkflows(pi: ExtensionAPI) {
       await saveRun(cwd, run);
       ctx.ui.notify(`Starting workflow: ${mod.meta.name}`, "info");
 
+      currentRun = run;
+      activities.clear();
+
+      workflowWidget = new WorkflowWidget(run, activities);
+      workflowWidget.setUICtx(ctx.ui as UICtx);
+      workflowWidget.ensureTimer();
+
+      const onActivityChange = (stepName: string, activity: WorkflowActivity) => {
+        activities.set(stepName, activity);
+        workflowWidget!.update();
+      };
+
       const steps: WorkflowStep[] = [];
       const runtime = createRuntime(ctx, (step) => {
         const existing = steps.find(
@@ -214,7 +265,8 @@ export default function piWorkflows(pi: ExtensionAPI) {
         run.steps = steps;
         run.updatedAt = Date.now();
         saveRun(cwd, run).catch(() => {});
-      }, signal);
+        workflowWidget!.update();
+      }, signal, onActivityChange);
 
       try {
         const result = await executeWorkflow(mod.body, runtime, parsedArgs);
@@ -222,6 +274,11 @@ export default function piWorkflows(pi: ExtensionAPI) {
         run.result = result;
         run.updatedAt = Date.now();
         await saveRun(cwd, run);
+
+        for (const step of steps) {
+          if (step.completedAt) workflowWidget!.markFinished(step.name);
+        }
+        workflowWidget!.update();
 
         const summary = typeof result === "string" ? result : JSON.stringify(result, null, 2);
         return {
@@ -232,7 +289,6 @@ export default function piWorkflows(pi: ExtensionAPI) {
           details: {},
         };
       } catch (err) {
-        // Check if this was a cancellation
         if (signal?.aborted || (err instanceof Error && err.message === "Workflow cancelled")) {
           run.status = "cancelled";
           run.updatedAt = Date.now();
@@ -242,6 +298,9 @@ export default function piWorkflows(pi: ExtensionAPI) {
             }
           }
           await saveRun(cwd, run);
+          workflowWidget?.dispose();
+          workflowWidget = null;
+          currentRun = null;
           return {
             content: [{
               type: "text",
@@ -253,6 +312,9 @@ export default function piWorkflows(pi: ExtensionAPI) {
         run.status = "failed";
         run.updatedAt = Date.now();
         await saveRun(cwd, run);
+        workflowWidget?.dispose();
+        workflowWidget = null;
+        currentRun = null;
         return {
           content: [{
             type: "text",
@@ -260,6 +322,12 @@ export default function piWorkflows(pi: ExtensionAPI) {
           }],
           details: {},
         };
+      } finally {
+        setTimeout(() => {
+          workflowWidget?.dispose();
+          workflowWidget = null;
+          currentRun = null;
+        }, 3000);
       }
     },
   });
@@ -302,7 +370,7 @@ export default function piWorkflows(pi: ExtensionAPI) {
         );
 
         pi.sendUserMessage(
-          `Use the workflow tool to start the "${workflowName}" workflow${workflowArgs ? ` with args: ${workflowArgs}` : ""}.`,
+          `Use the workflow tool with action: "start", workflow: "${workflowName}"${workflowArgs ? `, args: "${workflowArgs}"` : ""} to execute it now.`,
         );
         return;
       }
@@ -312,10 +380,48 @@ export default function piWorkflows(pi: ExtensionAPI) {
       const workflowArgs = parts.slice(1).join(" ");
 
       pi.sendUserMessage(
-        `Use the workflow tool to start the "${workflowName}" workflow${workflowArgs ? ` with args: ${workflowArgs}` : ""}.`,
+        `Use the workflow tool with action: "start", workflow: "${workflowName}"${workflowArgs ? `, args: "${workflowArgs}"` : ""} to execute it now.`,
       );
     },
   });
+}
+
+async function viewStepConversation(
+  ctx: any,
+  run: WorkflowRun,
+  step: WorkflowStep,
+): Promise<{ content: { type: "text"; text: string }[]; details: Record<string, never> }> {
+  const activities = new Map<string, WorkflowActivity>();
+  const activity = activities.get(step.name);
+
+  if (!activity?.session) {
+    return {
+      content: [{
+        type: "text" as const,
+        text: `No session available for step "${step.name}" (status: ${step.status}).\n\nSession data is only available during active workflow execution.`,
+      }],
+      details: {},
+    };
+  }
+
+  try {
+    const { ConversationViewer, VIEWPORT_HEIGHT_PCT } = await import("./ui/viewer.js");
+    await ctx.ui.custom(
+      (tui: any, theme: any, _keybindings: any, done: any) => {
+        return new ConversationViewer(tui, activity!.session!, step, activity, theme, done);
+      },
+      {
+        overlay: true,
+        overlayOptions: { anchor: "center" as const, width: "90%", maxHeight: `${VIEWPORT_HEIGHT_PCT}%` },
+      },
+    );
+    return { content: [{ type: "text" as const, text: `Viewed conversation for step "${step.name}".` }], details: {} };
+  } catch {
+    return {
+      content: [{ type: "text" as const, text: `Failed to open conversation viewer for step "${step.name}".` }],
+      details: {},
+    };
+  }
 }
 
 export function formatRun(run: WorkflowRun): string {
@@ -334,10 +440,19 @@ export function formatRun(run: WorkflowRun): string {
       s.startedAt && s.completedAt
         ? ` (${((s.completedAt - s.startedAt) / 1000).toFixed(1)}s)`
         : "";
-    lines.push(`  ${i + 1}. [${s.status}]${s.phase ? ` (${s.phase})` : ""} ${s.name}${duration}`);
+    const toolInfo = s.toolUses ? ` · ${s.toolUses} tool uses` : "";
+    const tokenInfo = s.tokens ? ` · ${formatTokensShort(s.tokens)}` : "";
+    lines.push(`  ${i + 1}. [${s.status}]${s.phase ? ` (${s.phase})` : ""} ${s.name}${duration}${toolInfo}${tokenInfo}`);
   }
   if (run.result) {
     lines.push("", "Result:", JSON.stringify(run.result, null, 2));
   }
   return lines.join("\n");
+}
+
+function formatTokensShort(tokens: { input: number; output: number; cacheWrite: number }): string {
+  const total = tokens.input + tokens.output + tokens.cacheWrite;
+  if (total >= 1_000_000) return `${(total / 1_000_000).toFixed(1)}M tok`;
+  if (total >= 1_000) return `${(total / 1_000).toFixed(1)}k tok`;
+  return `${total} tok`;
 }
