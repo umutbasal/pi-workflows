@@ -103,14 +103,10 @@ export default function piWorkflows(pi: ExtensionAPI) {
           Type.Literal("status"),
           Type.Literal("list"),
           Type.Literal("cancel"),
-          Type.Literal("view"),
         ]),
       ),
       run_id: Type.Optional(
-        Type.String({ description: "Run ID for status/cancel/view actions" }),
-      ),
-      step: Type.Optional(
-        Type.String({ description: "Step name to view (used with action: 'view')" }),
+        Type.String({ description: "Run ID for status/cancel actions" }),
       ),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -168,35 +164,6 @@ export default function piWorkflows(pi: ExtensionAPI) {
         }
         await saveRun(cwd, run);
         return { content: [{ type: "text", text: `Cancelled run ${run.runId}` }], details: {} };
-      }
-
-      if (action === "view") {
-        if (!params.run_id) {
-          return { content: [{ type: "text" as const, text: "Error: run_id required for view" }], details: {} };
-        }
-        const run = await loadRun(cwd, params.run_id);
-        if (!run) {
-          return { content: [{ type: "text" as const, text: `Run ${params.run_id} not found` }], details: {} };
-        }
-
-        const stepName = params.step;
-        if (!stepName) {
-          if (run.steps.length === 0) {
-            return { content: [{ type: "text" as const, text: `No steps in run ${run.runId}` }], details: {} };
-          }
-          const stepOptions = run.steps.map(s => `${s.name} [${s.status}]${s.phase ? ` (${s.phase})` : ""}`);
-          const selected = await ctx.ui.select("Select step to view", stepOptions);
-          if (!selected) return { content: [{ type: "text" as const, text: "No step selected." }], details: {} };
-          const idx = stepOptions.indexOf(selected);
-          if (idx < 0) return { content: [{ type: "text" as const, text: "Step not found." }], details: {} };
-          return await viewStepConversation(ctx, run, run.steps[idx]!);
-        }
-
-        const step = run.steps.find(s => s.name === stepName);
-        if (!step) {
-          return { content: [{ type: "text" as const, text: `Step "${stepName}" not found in run ${run.runId}` }], details: {} };
-        }
-        return await viewStepConversation(ctx, run, step);
       }
 
       // action === "start"
@@ -346,6 +313,53 @@ export default function piWorkflows(pi: ExtensionAPI) {
     },
   });
 
+  pi.registerCommand("workflow-steps", {
+    description: "View running workflow steps and their conversations",
+    handler: async (_args, ctx) => {
+      if (!currentRun || currentRun.steps.length === 0) {
+        ctx.ui.notify("No workflow is currently running.", "info");
+        return;
+      }
+
+      const stepOptions = currentRun.steps.map(s => {
+        const act = activities.get(s.name);
+        const toolUses = act?.toolUses ?? s.toolUses ?? 0;
+        const tokens = act?.lifetimeUsage ? (act.lifetimeUsage.input + act.lifetimeUsage.output + act.lifetimeUsage.cacheWrite) : (s.tokens ? s.tokens.input + s.tokens.output + s.tokens.cacheWrite : 0);
+        const tokenStr = tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : `${tokens}`;
+        const statusIcon = s.status === "running" ? "●" : s.status === "completed" ? "✓" : s.status === "failed" ? "✗" : "○";
+        return `${statusIcon} ${s.name}${s.phase ? ` (${s.phase})` : ""} · ${toolUses} tools · ${tokenStr} tok · [${s.status}]`;
+      });
+
+      const selected = await ctx.ui.select("Select step to view conversation", stepOptions);
+      if (!selected) return;
+
+      const idx = stepOptions.indexOf(selected);
+      if (idx < 0) return;
+      const step = currentRun.steps[idx]!;
+      const activity = activities.get(step.name);
+
+      if (!activity?.session) {
+        ctx.ui.notify(`No session available for step "${step.name}".`, "info");
+        return;
+      }
+
+      try {
+        const { ConversationViewer, VIEWPORT_HEIGHT_PCT } = await import("./ui/viewer.js");
+        await ctx.ui.custom(
+          (tui: any, theme: any, _keybindings: any, done: any) => {
+            return new ConversationViewer(tui, activity!.session!, step, activity, theme, done);
+          },
+          {
+            overlay: true,
+            overlayOptions: { anchor: "center" as const, width: "90%", maxHeight: `${VIEWPORT_HEIGHT_PCT}%` },
+          },
+        );
+      } catch {
+        ctx.ui.notify("Failed to open conversation viewer.", "error");
+      }
+    },
+  });
+
   pi.registerCommand("workflow", {
     description: "Run or manage workflow scripts",
     handler: async (args, ctx) => {
@@ -384,44 +398,6 @@ export default function piWorkflows(pi: ExtensionAPI) {
       );
     },
   });
-}
-
-async function viewStepConversation(
-  ctx: any,
-  run: WorkflowRun,
-  step: WorkflowStep,
-): Promise<{ content: { type: "text"; text: string }[]; details: Record<string, never> }> {
-  const activities = new Map<string, WorkflowActivity>();
-  const activity = activities.get(step.name);
-
-  if (!activity?.session) {
-    return {
-      content: [{
-        type: "text" as const,
-        text: `No session available for step "${step.name}" (status: ${step.status}).\n\nSession data is only available during active workflow execution.`,
-      }],
-      details: {},
-    };
-  }
-
-  try {
-    const { ConversationViewer, VIEWPORT_HEIGHT_PCT } = await import("./ui/viewer.js");
-    await ctx.ui.custom(
-      (tui: any, theme: any, _keybindings: any, done: any) => {
-        return new ConversationViewer(tui, activity!.session!, step, activity, theme, done);
-      },
-      {
-        overlay: true,
-        overlayOptions: { anchor: "center" as const, width: "90%", maxHeight: `${VIEWPORT_HEIGHT_PCT}%` },
-      },
-    );
-    return { content: [{ type: "text" as const, text: `Viewed conversation for step "${step.name}".` }], details: {} };
-  } catch {
-    return {
-      content: [{ type: "text" as const, text: `Failed to open conversation viewer for step "${step.name}".` }],
-      details: {},
-    };
-  }
 }
 
 export function formatRun(run: WorkflowRun): string {

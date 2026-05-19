@@ -6,17 +6,15 @@ import {
   SPINNER,
   ERROR_STATUSES,
   describeActivity,
-  formatDuration,
   formatMs,
   formatSessionTokens,
-  formatTokens,
   formatTurns,
   getLifetimeTotal,
   getSessionContextPercent,
   type Theme,
 } from "./format.js";
 
-const MAX_WIDGET_LINES = 12;
+const MAX_WIDGET_LINES = 14;
 
 export type UICtx = {
   setStatus(key: string, text: string | undefined): void;
@@ -25,6 +23,15 @@ export type UICtx = {
     content: undefined | ((tui: TUI, theme: Theme) => { render(): string[]; invalidate(): void }),
     options?: { placement?: "aboveEditor" | "belowEditor" },
   ): void;
+};
+
+type StepViewItem = {
+  step: WorkflowStep;
+  status: "running" | "finished";
+  connector: string;
+  indent: string;
+  header: string;
+  activity: string;
 };
 
 export class WorkflowWidget {
@@ -36,6 +43,7 @@ export class WorkflowWidget {
   private widgetRegistered = false;
   private tui: TUI | undefined;
   private lastStatusText: string | undefined;
+  private viewItems: StepViewItem[] = [];
 
   constructor(
     private run: WorkflowRun,
@@ -76,61 +84,75 @@ export class WorkflowWidget {
     }
   }
 
-  private renderStepLine(
-    step: WorkflowStep,
-    status: "running" | "finished",
-    theme: Theme,
-    spinnerFrame?: number,
-    _isLast?: boolean,
-  ): [string, string] {
-    const duration = step.startedAt
-      ? formatMs((step.completedAt ?? Date.now()) - step.startedAt)
-      : "";
-    const activity = this.activities.get(step.name);
-    const toolUses = activity?.toolUses ?? step.toolUses ?? 0;
-    const tokens = getLifetimeTotal(activity?.lifetimeUsage);
-    const session = activity?.session;
-    const contextPercent = getSessionContextPercent(session);
+  private buildViewItems(steps: WorkflowStep[], running: WorkflowStep[], finished: WorkflowStep[], theme: Theme, truncate: (s: string) => string): StepViewItem[] {
+    const items: StepViewItem[] = [];
+    const allItems = [...finished, ...running];
+    const total = allItems.length;
+    let idx = 0;
 
-    let icon: string;
-    if (status === "running") {
-      icon = theme.fg("accent", SPINNER[(spinnerFrame ?? 0) % SPINNER.length]);
-    } else if (step.status === "completed") {
-      icon = theme.fg("success", "✓");
-    } else if (step.status === "failed") {
-      icon = theme.fg("error", "✗");
-    } else if (step.status === "cancelled") {
-      icon = theme.fg("dim", "■");
-    } else {
-      icon = theme.fg("dim", "○");
+    for (const s of allItems) {
+      idx++;
+      const isLast = idx === total;
+      const isRunning = s.status === "running";
+      const connector = isLast ? "└─" : "├─";
+      const indent = isLast ? "   " : "│  ";
+
+      const duration = s.startedAt ? formatMs((s.completedAt ?? Date.now()) - s.startedAt) : "";
+      const activity = this.activities.get(s.name);
+      const toolUses = activity?.toolUses ?? s.toolUses ?? 0;
+      const tokens = getLifetimeTotal(activity?.lifetimeUsage);
+      const session = activity?.session;
+      const contextPercent = getSessionContextPercent(session);
+
+      let icon: string;
+      if (isRunning) {
+        icon = theme.fg("accent", SPINNER[this.widgetFrame % SPINNER.length]);
+      } else if (s.status === "completed") {
+        icon = theme.fg("success", "✓");
+      } else if (s.status === "failed") {
+        icon = theme.fg("error", "✗");
+      } else if (s.status === "cancelled") {
+        icon = theme.fg("dim", "■");
+      } else {
+        icon = theme.fg("dim", "○");
+      }
+
+      const parts: string[] = [];
+      if (activity) parts.push(formatTurns(activity.turnCount, activity.maxTurns));
+      else if (s.turnCount != null) parts.push(formatTurns(s.turnCount));
+      if (toolUses > 0) parts.push(`${toolUses} tool${toolUses === 1 ? "" : "s"}`);
+      if (tokens > 0) {
+        parts.push(formatSessionTokens(tokens, contextPercent, theme));
+      }
+      parts.push(duration);
+
+      const statsText = parts.join(" · ");
+      const activityText = activity
+        ? describeActivity(activity.activeTools, activity.responseText)
+        : isRunning
+          ? "thinking…"
+          : (s.activity || "done");
+
+      const name = theme.bold(s.name);
+      const phaseTag = s.phase ? ` ${theme.fg("dim", `(${s.phase})`)}` : "";
+      const errorTag = s.error && !isRunning
+        ? ` ${theme.fg("error", `error: ${s.error.slice(0, 40)}`)}`
+        : "";
+
+      const header = truncate(`${icon} ${name}${phaseTag}  ${theme.fg("dim", statsText)}${errorTag}`);
+      const activityLine = truncate(`${indent}⎿  ${activityText}`);
+
+      items.push({
+        step: s,
+        status: isRunning ? "running" : "finished",
+        connector,
+        indent,
+        header,
+        activity: activityLine,
+      });
     }
 
-    const parts: string[] = [];
-    if (activity) parts.push(formatTurns(activity.turnCount, activity.maxTurns));
-    else if (step.turnCount != null) parts.push(formatTurns(step.turnCount));
-    if (toolUses > 0) parts.push(`${toolUses} tool use${toolUses === 1 ? "" : "s"}`);
-    if (tokens > 0) {
-      const tokenText = formatSessionTokens(tokens, contextPercent, theme);
-      parts.push(tokenText);
-    }
-    parts.push(duration);
-
-    const statsText = parts.join(" · ");
-    const activityText = activity
-      ? describeActivity(activity.activeTools, activity.responseText)
-      : status === "finished"
-        ? (step.activity || "done")
-        : "thinking…";
-
-    const name = theme.bold(step.name);
-    const phaseTag = step.phase ? ` ${theme.fg("dim", `(${step.phase})`)}` : "";
-    const errorTag = step.error && status === "finished"
-      ? ` ${theme.fg("error", `error: ${step.error.slice(0, 40)}`)}`
-      : "";
-
-    const header = `${icon} ${name}${phaseTag}  ${theme.fg("dim", statsText)}${errorTag}`;
-    const activityLine = `⎿  ${activityText}`;
-    return [header, activityLine];
+    return items;
   }
 
   private renderWidget(tui: TUI, theme: Theme): string[] {
@@ -148,68 +170,36 @@ export class WorkflowWidget {
 
     const w = tui.terminal.columns;
     const truncate = (line: string) => truncateToWidth(line, w);
-    const frame = SPINNER[this.widgetFrame % SPINNER.length];
 
-    // Build all body items as { header, activity } pairs
-    type BodyItem = { header: string; activity: string; isLast: boolean };
-    const bodyItems: BodyItem[] = [];
-
-    const allFinished = [...finished];
-    const allRunning = [...running];
-    const totalItems = allFinished.length + allRunning.length;
-    let idx = 0;
-
-    for (const s of allFinished) {
-      idx++;
-      const isLast = idx === totalItems;
-      const connector = isLast ? "└─" : "├─";
-      const stepLines = this.renderStepLine(s, "finished", theme, undefined, isLast);
-      const [header, activity] = stepLines;
-      bodyItems.push({
-        header: truncate(theme.fg("dim", connector) + " " + header),
-        activity: truncate(theme.fg("dim", isLast ? "   " : "│  ") + " " + activity),
-        isLast,
-      });
-    }
-
-    for (const s of allRunning) {
-      idx++;
-      const isLast = idx === totalItems;
-      const connector = isLast ? "└─" : "├─";
-      const stepLines = this.renderStepLine(s, "running", theme, this.widgetFrame, isLast);
-      const [header, activity] = stepLines;
-      bodyItems.push({
-        header: truncate(theme.fg("dim", connector) + " " + header),
-        activity: truncate(theme.fg("dim", isLast ? "   " : "│  ") + " " + activity),
-        isLast,
-      });
-    }
-
-    const maxBody = MAX_WIDGET_LINES - 1;
-    const totalBody = bodyItems.length;
+    this.viewItems = this.buildViewItems(steps, running, finished, theme, truncate);
 
     const headingIcon = hasActive ? "●" : "○";
     const headingText = `${headingIcon} Workflow: ${this.run.workflow}${hasActive ? ` (${running.length} running)` : ""}`;
     const lines: string[] = [truncate(theme.fg(hasActive ? "accent" : "dim", headingText))];
 
+    const maxBody = MAX_WIDGET_LINES - 1;
+    const totalBody = this.viewItems.length;
+
     if (totalBody <= maxBody) {
-      for (const item of bodyItems) {
-        lines.push(item.header);
-        lines.push(item.activity);
+      for (let i = 0; i < this.viewItems.length; i++) {
+        const item = this.viewItems[i]!;
+        const isLast = i === this.viewItems.length - 1;
+        const connector = isLast ? "└─" : "├─";
+        lines.push(truncate(theme.fg("dim", connector) + " " + item.header));
+        lines.push(truncate(theme.fg("dim", item.activity)));
       }
     } else {
       let budget = maxBody - 1;
       let hiddenRunning = 0;
       let hiddenFinished = 0;
 
-      // Running agents first (2 lines each)
-      const runningItems = bodyItems.filter((_, i) => i >= allFinished.length);
-      const finishedItems = bodyItems.filter((_, i) => i < allFinished.length);
+      const runningItems = this.viewItems.filter(v => v.status === "running");
+      const finishedItems = this.viewItems.filter(v => v.status === "finished");
 
       for (const item of runningItems) {
         if (budget >= 2) {
-          lines.push(item.header);
-          lines.push(item.activity);
+          lines.push(truncate(theme.fg("dim", item.connector) + " " + item.header));
+          lines.push(truncate(theme.fg("dim", item.activity)));
           budget -= 2;
         } else {
           hiddenRunning++;
@@ -218,9 +208,9 @@ export class WorkflowWidget {
 
       for (const item of finishedItems) {
         if (budget >= 2) {
-          lines.push(item.header);
-          lines.push(item.activity);
-          budget--;
+          lines.push(truncate(theme.fg("dim", item.connector) + " " + item.header));
+          lines.push(truncate(theme.fg("dim", item.activity)));
+          budget -= 2;
         } else {
           hiddenFinished++;
         }
@@ -232,6 +222,9 @@ export class WorkflowWidget {
       const overflowText = overflowParts.join(", ");
       lines.push(truncate(theme.fg("dim", "└─") + ` ${theme.fg("dim", `+${hiddenRunning + hiddenFinished} more (${overflowText})`)}`));
     }
+
+    const hint = truncate(theme.fg("dim", "  /workflow-steps to view conversations"));
+    lines.push(hint);
 
     return lines;
   }
