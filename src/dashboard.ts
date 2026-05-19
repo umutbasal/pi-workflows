@@ -3,7 +3,8 @@ import { readFile } from "fs/promises";
 import { createServer, type Server, type ServerResponse } from "http";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { listRuns } from "./store";
+import { listRuns, loadRun } from "./store";
+import { parseSessionFile, findSessionById, listSessionsForProject, getSessionStatsForRun } from "./sessions";
 
 function getTemplatePath(): string {
   const dir = dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,72 @@ export function startDashboard(cwd: string, port = 3847): Promise<{ url: string;
       const runs = await listRuns(cwd);
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(runs));
+      return;
+    }
+
+    const runMatch = url.pathname.match(/^\/api\/runs\/([^/]+)$/);
+    if (runMatch) {
+      const runId = runMatch[1];
+      const run = await loadRun(cwd, runId);
+      if (!run) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "Run not found" }));
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(run));
+      return;
+    }
+
+    const sessionMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/session$/);
+    if (sessionMatch) {
+      const runId = sessionMatch[1];
+      const run = await loadRun(cwd, runId);
+      if (!run) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "Run not found" }));
+        return;
+      }
+      const sessionStats = await getSessionStatsForRun(run.steps);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(sessionStats));
+      return;
+    }
+
+    const sessionFileMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)$/);
+    if (sessionFileMatch) {
+      const sessionId = decodeURIComponent(sessionFileMatch[1]);
+      const filePath = await findSessionById(sessionId);
+      if (!filePath) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "Session not found" }));
+        return;
+      }
+      const stats = await parseSessionFile(filePath);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(stats));
+      return;
+    }
+
+    if (url.pathname === "/api/project-sessions") {
+      const sessions = await listSessionsForProject(cwd);
+      const sessionList = [];
+      for (const filePath of sessions.slice(0, 50)) {
+        const stats = await parseSessionFile(filePath);
+        if (stats) {
+          sessionList.push({
+            id: stats.id,
+            createdAt: stats.createdAt,
+            cwd: stats.cwd,
+            totalMessages: stats.totalMessages,
+            totalTokens: stats.totalTokens,
+            totalCost: stats.totalCost,
+            models: stats.models.map(m => ({ model: m.model, provider: m.provider })),
+          });
+        }
+      }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(sessionList));
       return;
     }
 

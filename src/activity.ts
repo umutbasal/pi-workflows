@@ -8,8 +8,11 @@ export interface WorkflowActivity {
   turnCount: number;
   maxTurns?: number;
   lifetimeUsage: { input: number; output: number; cacheWrite: number };
+  lifetimeCost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
   compactionCount: number;
   session?: AgentSession;
+  modelId?: string;
+  provider?: string;
 }
 
 export function createActivityTracker(
@@ -23,6 +26,7 @@ export function createActivityTracker(
     turnCount: 1,
     maxTurns,
     lifetimeUsage: { input: 0, output: 0, cacheWrite: 0 },
+    lifetimeCost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     compactionCount: 0,
   };
 
@@ -51,6 +55,19 @@ export function createActivityTracker(
     },
     onAssistantUsage(usage: { input: number; output: number; cacheWrite: number }) {
       addUsage(state.lifetimeUsage, usage);
+      onStreamUpdate?.();
+    },
+    onCostUsage(cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }) {
+      state.lifetimeCost.input += cost.input;
+      state.lifetimeCost.output += cost.output;
+      state.lifetimeCost.cacheRead += cost.cacheRead;
+      state.lifetimeCost.cacheWrite += cost.cacheWrite;
+      state.lifetimeCost.total += cost.total;
+      onStreamUpdate?.();
+    },
+    onModelInfo(modelId: string, provider: string) {
+      state.modelId = modelId;
+      state.provider = provider;
       onStreamUpdate?.();
     },
   };

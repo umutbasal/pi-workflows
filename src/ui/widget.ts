@@ -9,6 +9,7 @@ import {
   formatMs,
   formatSessionTokens,
   formatTurns,
+  formatCost,
   getLifetimeTotal,
   getSessionContextPercent,
   type Theme,
@@ -100,9 +101,11 @@ export class WorkflowWidget {
       const duration = s.startedAt ? formatMs((s.completedAt ?? Date.now()) - s.startedAt) : "";
       const activity = this.activities.get(s.name);
       const toolUses = activity?.toolUses ?? s.toolUses ?? 0;
-      const tokens = getLifetimeTotal(activity?.lifetimeUsage);
+      const tokens = getLifetimeTotal(activity?.lifetimeUsage ?? s.tokens);
       const session = activity?.session;
       const contextPercent = getSessionContextPercent(session);
+      const modelId = activity?.modelId ?? s.modelId;
+      const cost = activity?.lifetimeCost ?? s.cost;
 
       let icon: string;
       if (isRunning) {
@@ -122,7 +125,14 @@ export class WorkflowWidget {
       else if (s.turnCount != null) parts.push(formatTurns(s.turnCount));
       if (toolUses > 0) parts.push(`${toolUses} tool${toolUses === 1 ? "" : "s"}`);
       if (tokens > 0) {
-        parts.push(formatSessionTokens(tokens, contextPercent, theme));
+        const compactions = activity?.compactionCount ?? s.compactionCount ?? 0;
+        parts.push(formatSessionTokens(tokens, contextPercent, theme, compactions));
+      }
+      if (cost && cost.total > 0) {
+        parts.push(formatCost(cost.total));
+      }
+      if (modelId) {
+        parts.push(theme.fg("dim", modelId.split(".").pop() ?? modelId));
       }
       parts.push(duration);
 
