@@ -131,6 +131,9 @@ export function createRuntime(
           customTools: [emitResultTool],
         });
 
+        const sessionId = (session as any).id ?? (session as any).sessionId;
+        if (sessionId) step.sessionId = sessionId;
+
         callbacks.onSessionCreated(session);
         session.subscribe((event) => {
           if (event.type === "tool_execution_start") {
@@ -145,6 +148,18 @@ export function createRuntime(
                 output: msg.usage.output_tokens ?? 0,
                 cacheWrite: msg.usage.cache_write_input_tokens ?? 0,
               });
+              if (msg.usage.cost) {
+                callbacks.onCostUsage({
+                  input: msg.usage.cost.input ?? 0,
+                  output: msg.usage.cost.output ?? 0,
+                  cacheRead: msg.usage.cost.cacheRead ?? 0,
+                  cacheWrite: msg.usage.cost.cacheWrite ?? 0,
+                  total: msg.usage.cost.total ?? 0,
+                });
+              }
+              if (msg.model && !state.modelId) {
+                callbacks.onModelInfo(msg.model, msg.provider ?? "unknown");
+              }
             }
             if (msg?.role === "assistant" && Array.isArray(msg.content)) {
               for (const block of msg.content) {
@@ -187,6 +202,9 @@ export function createRuntime(
             step.toolUses = activityState.toolUses;
             step.turnCount = activityState.turnCount;
             step.tokens = { ...activityState.lifetimeUsage };
+            step.cost = { ...activityState.lifetimeCost };
+            step.modelId = activityState.modelId;
+            step.provider = activityState.provider;
             step.activity = describeActivity(activityState.activeTools, activityState.responseText);
           }
           onStep(step);
@@ -202,6 +220,9 @@ export function createRuntime(
             step.toolUses = activityState.toolUses;
             step.turnCount = activityState.turnCount;
             step.tokens = { ...activityState.lifetimeUsage };
+            step.cost = { ...activityState.lifetimeCost };
+            step.modelId = activityState.modelId;
+            step.provider = activityState.provider;
             step.activity = describeActivity(activityState.activeTools, activityState.responseText);
           }
           onStep(step);
@@ -215,6 +236,9 @@ export function createRuntime(
           step.toolUses = activityState.toolUses;
           step.turnCount = activityState.turnCount;
           step.tokens = { ...activityState.lifetimeUsage };
+          step.cost = { ...activityState.lifetimeCost };
+          step.modelId = activityState.modelId;
+          step.provider = activityState.provider;
         }
         onStep(step);
         return undefined;
@@ -228,6 +252,9 @@ export function createRuntime(
         cwd: ctx.cwd,
         model: ctx.model,
       });
+
+      const sessionId = (session as any).id ?? (session as any).sessionId;
+      if (sessionId) step.sessionId = sessionId;
 
       callbacks.onSessionCreated(session);
       session.subscribe((event) => {
@@ -243,6 +270,18 @@ export function createRuntime(
               output: msg.usage.output_tokens ?? 0,
               cacheWrite: msg.usage.cache_write_input_tokens ?? 0,
             });
+            if (msg.usage.cost) {
+              callbacks.onCostUsage({
+                input: msg.usage.cost.input ?? 0,
+                output: msg.usage.cost.output ?? 0,
+                cacheRead: msg.usage.cost.cacheRead ?? 0,
+                cacheWrite: msg.usage.cost.cacheWrite ?? 0,
+                total: msg.usage.cost.total ?? 0,
+              });
+            }
+            if (msg.model && !state.modelId) {
+              callbacks.onModelInfo(msg.model, msg.provider ?? "unknown");
+            }
           }
           if (msg?.role === "assistant" && Array.isArray(msg.content)) {
             for (const block of msg.content) {
@@ -274,6 +313,9 @@ export function createRuntime(
           step.toolUses = activityState.toolUses;
           step.turnCount = activityState.turnCount;
           step.tokens = { ...activityState.lifetimeUsage };
+          step.cost = { ...activityState.lifetimeCost };
+          step.modelId = activityState.modelId;
+          step.provider = activityState.provider;
           step.activity = describeActivity(activityState.activeTools, activityState.responseText);
         }
         onStep(step);
@@ -286,6 +328,9 @@ export function createRuntime(
       step.toolUses = activityState.toolUses;
       step.turnCount = activityState.turnCount;
       step.tokens = { ...activityState.lifetimeUsage };
+      step.cost = { ...activityState.lifetimeCost };
+      step.modelId = activityState.modelId;
+      step.provider = activityState.provider;
       step.activity = describeActivity(activityState.activeTools, activityState.responseText);
       onStep(step);
       return state.responseText;
@@ -298,6 +343,9 @@ export function createRuntime(
           step.toolUses = activityState.toolUses;
           step.turnCount = activityState.turnCount;
           step.tokens = { ...activityState.lifetimeUsage };
+          step.cost = { ...activityState.lifetimeCost };
+          step.modelId = activityState.modelId;
+          step.provider = activityState.provider;
         }
         onStep(step);
         throw new Error("Workflow cancelled");
@@ -309,6 +357,9 @@ export function createRuntime(
         step.toolUses = activityState.toolUses;
         step.turnCount = activityState.turnCount;
         step.tokens = { ...activityState.lifetimeUsage };
+        step.cost = { ...activityState.lifetimeCost };
+        step.modelId = activityState.modelId;
+        step.provider = activityState.provider;
       }
       onStep(step);
       return undefined;

@@ -326,8 +326,11 @@ export default function piWorkflows(pi: ExtensionAPI) {
         const toolUses = act?.toolUses ?? s.toolUses ?? 0;
         const tokens = act?.lifetimeUsage ? (act.lifetimeUsage.input + act.lifetimeUsage.output + act.lifetimeUsage.cacheWrite) : (s.tokens ? s.tokens.input + s.tokens.output + s.tokens.cacheWrite : 0);
         const tokenStr = tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : `${tokens}`;
+        const cost = act?.lifetimeCost ?? s.cost;
+        const costStr = cost && cost.total > 0 ? ` · $${cost.total.toFixed(4)}` : '';
+        const modelStr = act?.modelId ?? s.modelId ? ` · ${(act?.modelId ?? s.modelId)?.split('.').pop()}` : '';
         const statusIcon = s.status === "running" ? "●" : s.status === "completed" ? "✓" : s.status === "failed" ? "✗" : "○";
-        return `${statusIcon} ${s.name}${s.phase ? ` (${s.phase})` : ""} · ${toolUses} tools · ${tokenStr} tok · [${s.status}]`;
+        return `${statusIcon} ${s.name}${s.phase ? ` (${s.phase})` : ""} · ${toolUses} tools · ${tokenStr} tok${costStr}${modelStr} [${s.status}]`;
       });
 
       const selected = await ctx.ui.select("Select step to view conversation", stepOptions);
@@ -418,7 +421,9 @@ export function formatRun(run: WorkflowRun): string {
         : "";
     const toolInfo = s.toolUses ? ` · ${s.toolUses} tool uses` : "";
     const tokenInfo = s.tokens ? ` · ${formatTokensShort(s.tokens)}` : "";
-    lines.push(`  ${i + 1}. [${s.status}]${s.phase ? ` (${s.phase})` : ""} ${s.name}${duration}${toolInfo}${tokenInfo}`);
+    const costInfo = s.cost && s.cost.total > 0 ? ` · $${s.cost.total.toFixed(4)}` : "";
+    const modelInfo = s.modelId ? ` · ${s.modelId}` : "";
+    lines.push(`  ${i + 1}. [${s.status}]${s.phase ? ` (${s.phase})` : ""} ${s.name}${duration}${toolInfo}${tokenInfo}${costInfo}${modelInfo}`);
   }
   if (run.result) {
     lines.push("", "Result:", JSON.stringify(run.result, null, 2));

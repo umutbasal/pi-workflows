@@ -139,7 +139,6 @@
     .badge.cancelled { color: var(--warn); background: rgba(210,153,34,0.15); }
     .badge.pending { color: var(--muted); background: rgba(139,148,158,0.15); }
 
-    /* Tree visualization */
     .workflow-tree {
       position: relative;
       padding-left: 20px;
@@ -159,11 +158,20 @@
     }
 
     .tree-node {
+      position: relative;
+    }
+
+    .tree-node-header {
       display: flex;
       align-items: flex-start;
       gap: 12px;
-      position: relative;
       padding: 6px 0;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background 0.1s;
+    }
+    .tree-node-header:hover {
+      background: rgba(88, 166, 255, 0.05);
     }
 
     .node-connector {
@@ -252,6 +260,7 @@
       margin-top: 2px;
       display: flex;
       gap: 12px;
+      flex-wrap: wrap;
     }
     .node-duration {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -261,6 +270,171 @@
       color: var(--bad);
       margin-top: 4px;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .node-expand {
+      font-size: 10px;
+      color: var(--muted);
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    .node-details {
+      display: none;
+      margin-left: 44px;
+      margin-bottom: 8px;
+      padding: 12px;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 12px;
+    }
+    .node-details.expanded {
+      display: block;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
+    }
+
+    .detail-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .detail-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+    .detail-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--text);
+    }
+
+    .session-panel {
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .session-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 8px;
+    }
+    .session-tab {
+      padding: 6px 12px;
+      font-size: 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--muted);
+      transition: all 0.1s;
+    }
+    .session-tab:hover {
+      background: rgba(88, 166, 255, 0.1);
+      color: var(--text);
+    }
+    .session-tab.active {
+      background: rgba(88, 166, 255, 0.15);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .summary-card {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .summary-card-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .summary-card-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .summary-card-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .model-table, .tool-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .model-table th, .tool-table th {
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .model-table td, .tool-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--line);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .model-table tr:last-child td, .tool-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .message-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .message-item {
+      padding: 8px 12px;
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .message-role {
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .message-role.user { color: var(--accent); }
+    .message-role.assistant { color: var(--good); }
+    .message-role.tool { color: var(--warn); }
+    .message-content {
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--text);
+      max-height: 100px;
+      overflow: hidden;
+    }
+    .message-meta {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 4px;
+      display: flex;
+      gap: 12px;
     }
 
     .run-result {
@@ -287,6 +461,12 @@
       word-break: break-word;
       max-height: 200px;
       overflow-y: auto;
+    }
+
+    .loading {
+      color: var(--muted);
+      font-size: 12px;
+      font-style: italic;
     }
 
     @media (max-width: 768px) {
@@ -320,6 +500,8 @@
   <script>
     let runs = [];
     let selectedRunId = null;
+    let sessionData = null;
+    let activeSessionTab = 'overview';
 
     init();
 
@@ -351,6 +533,20 @@
         .catch(() => setMeta('error'));
     }
 
+    function fetchSession(runId) {
+      sessionData = null;
+      activeSessionTab = 'overview';
+      fetch(`/api/runs/${runId}/session`, { cache: 'no-store' })
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.id) {
+            sessionData = data;
+            renderMainPanel();
+          }
+        })
+        .catch(() => {});
+    }
+
     function render() {
       renderSidebar();
       renderMainPanel();
@@ -379,6 +575,7 @@
       list.querySelectorAll('.run-item').forEach(item => {
         item.addEventListener('click', () => {
           selectedRunId = item.dataset.id;
+          fetchSession(selectedRunId);
           render();
         });
       });
@@ -396,7 +593,9 @@
       html += renderRunHeader(run);
       html += renderWorkflowTree(run);
       if (run.result) html += renderResult(run.result);
+      html += renderSessionPanel(run);
       panel.innerHTML = html;
+      attachNodeClickHandlers();
     }
 
     function renderRunHeader(run) {
@@ -464,7 +663,23 @@
       const topLineClass = !isFirst ? (' ' + lineClass(step.status)) : '';
       const bottomLineClass = !isLast ? (' ' + lineClassForNext(step.status)) : '';
 
+      const tokens = step.tokens ? (step.tokens.input + step.tokens.output + step.tokens.cacheWrite) : 0;
+      const tokenStr = tokens > 0 ? formatTokens(tokens) : '';
+      const costStr = step.cost && step.cost.total > 0 ? formatCost(step.cost.total) : '';
+      const modelStr = step.modelId ? (step.modelId.split('.').pop() || step.modelId) : '';
+      const turnStr = step.turnCount ? '⟳' + step.turnCount : '';
+      const toolStr = step.toolUses ? step.toolUses + ' tools' : '';
+
+      const metaParts = [];
+      if (turnStr) metaParts.push('<span>' + turnStr + '</span>');
+      if (toolStr) metaParts.push('<span>' + toolStr + '</span>');
+      if (tokenStr) metaParts.push('<span>' + tokenStr + '</span>');
+      if (costStr) metaParts.push('<span>' + costStr + '</span>');
+      if (modelStr) metaParts.push('<span>' + esc(modelStr) + '</span>');
+      if (dur) metaParts.push('<span class="node-duration">' + dur + '</span>');
+
       let html = '<div class="tree-node">';
+      html += '<div class="tree-node-header" data-step-index="' + index + '">';
       html += '<div class="node-connector">';
       if (!isFirst) html += '<div class="tree-line top' + topLineClass + '"></div>';
       if (!isLast) html += '<div class="tree-line bottom' + bottomLineClass + '"></div>';
@@ -472,11 +687,230 @@
       html += '</div>';
       html += '<div class="node-content">';
       html += '<div class="node-name">' + esc(step.name) + '</div>';
-      html += '<div class="node-meta">';
-      if (dur) html += '<span class="node-duration">' + dur + '</span>';
-      html += '</div>';
+      html += '<div class="node-meta">' + metaParts.join('') + '</div>';
       if (step.error) html += '<div class="node-error">' + esc(step.error) + '</div>';
       html += '</div>';
+      html += '<div class="node-expand">click to expand</div>';
+      html += '</div>';
+      html += '</div>';
+
+      html += '<div class="node-details" id="node-details-' + index + '">';
+      html += renderNodeDetails(step);
+      html += '</div>';
+
+      return html;
+    }
+
+    function renderNodeDetails(step) {
+      let html = '<div class="detail-grid">';
+
+      if (step.turnCount != null) {
+        html += '<div class="detail-item"><span class="detail-label">Turns</span><span class="detail-value">' + step.turnCount + '</span></div>';
+      }
+      if (step.toolUses != null) {
+        html += '<div class="detail-item"><span class="detail-label">Tool Uses</span><span class="detail-value">' + step.toolUses + '</span></div>';
+      }
+      if (step.tokens) {
+        html += '<div class="detail-item"><span class="detail-label">Input Tokens</span><span class="detail-value">' + step.tokens.input.toLocaleString() + '</span></div>';
+        html += '<div class="detail-item"><span class="detail-label">Output Tokens</span><span class="detail-value">' + step.tokens.output.toLocaleString() + '</span></div>';
+        html += '<div class="detail-item"><span class="detail-label">Cache Write</span><span class="detail-value">' + step.tokens.cacheWrite.toLocaleString() + '</span></div>';
+        const total = step.tokens.input + step.tokens.output + step.tokens.cacheWrite;
+        html += '<div class="detail-item"><span class="detail-label">Total Tokens</span><span class="detail-value">' + total.toLocaleString() + '</span></div>';
+      }
+      if (step.cost) {
+        html += '<div class="detail-item"><span class="detail-label">Cost</span><span class="detail-value">$' + step.cost.total.toFixed(4) + '</span></div>';
+      }
+      if (step.modelId) {
+        html += '<div class="detail-item"><span class="detail-label">Model</span><span class="detail-value">' + esc(step.modelId) + '</span></div>';
+      }
+      if (step.provider) {
+        html += '<div class="detail-item"><span class="detail-label">Provider</span><span class="detail-value">' + esc(step.provider) + '</span></div>';
+      }
+      if (step.compactionCount) {
+        html += '<div class="detail-item"><span class="detail-label">Compactions</span><span class="detail-value">' + step.compactionCount + '</span></div>';
+      }
+      if (step.startedAt) {
+        const started = new Date(step.startedAt).toLocaleString();
+        html += '<div class="detail-item"><span class="detail-label">Started</span><span class="detail-value">' + started + '</span></div>';
+      }
+      if (step.completedAt) {
+        const completed = new Date(step.completedAt).toLocaleString();
+        html += '<div class="detail-item"><span class="detail-label">Completed</span><span class="detail-value">' + completed + '</span></div>';
+      }
+      if (step.sessionId) {
+        html += '<div class="detail-item"><span class="detail-label">Session ID</span><span class="detail-value">' + esc(step.sessionId.slice(0, 12)) + '...</span></div>';
+      }
+
+      html += '</div>';
+
+      if (step.activity) {
+        html += '<div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line);">';
+        html += '<span class="detail-label">Activity</span>';
+        html += '<div style="margin-top: 4px; color: var(--text); font-size: 12px;">' + esc(step.activity) + '</div>';
+        html += '</div>';
+      }
+
+      if (step.result) {
+        const resultText = typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2);
+        html += '<div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line);">';
+        html += '<span class="detail-label">Result</span>';
+        html += '<pre style="margin-top: 4px; background: var(--panel); padding: 8px; border-radius: 4px; font-size: 11px; max-height: 150px; overflow: auto; white-space: pre-wrap;">' + esc(resultText.slice(0, 1000)) + '</pre>';
+        html += '</div>';
+      }
+
+      return html;
+    }
+
+    function renderSessionPanel(run) {
+      if (!sessionData) {
+        return '<div class="session-panel"><div class="loading">Loading session data...</div></div>';
+      }
+
+      let html = '<div class="session-panel">';
+      html += '<div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 12px;">Agent Session Details</div>';
+
+      html += '<div class="session-tabs">';
+      html += '<div class="session-tab' + (activeSessionTab === 'overview' ? ' active' : '') + '" data-tab="overview">Overview</div>';
+      html += '<div class="session-tab' + (activeSessionTab === 'models' ? ' active' : '') + '" data-tab="models">Models</div>';
+      html += '<div class="session-tab' + (activeSessionTab === 'tools' ? ' active' : '') + '" data-tab="tools">Tools</div>';
+      html += '<div class="session-tab' + (activeSessionTab === 'messages' ? ' active' : '') + '" data-tab="messages">Messages</div>';
+      html += '</div>';
+
+      if (activeSessionTab === 'overview') {
+        html += renderSessionOverview();
+      } else if (activeSessionTab === 'models') {
+        html += renderSessionModels();
+      } else if (activeSessionTab === 'tools') {
+        html += renderSessionTools();
+      } else if (activeSessionTab === 'messages') {
+        html += renderSessionMessages();
+      }
+
+      html += '</div>';
+
+      setTimeout(() => {
+        document.querySelectorAll('.session-tab').forEach(tab => {
+          tab.addEventListener('click', () => {
+            activeSessionTab = tab.dataset.tab;
+            renderMainPanel();
+          });
+        });
+      }, 0);
+
+      return html;
+    }
+
+    function renderSessionOverview() {
+      const s = sessionData;
+      let html = '<div class="summary-cards">';
+
+      html += '<div class="summary-card">';
+      html += '<div class="summary-card-label">Total Tokens</div>';
+      html += '<div class="summary-card-value">' + formatTokens(s.totalTokens.total) + '</div>';
+      html += '<div class="summary-card-sub">in: ' + s.totalTokens.input.toLocaleString() + ' · out: ' + s.totalTokens.output.toLocaleString() + '</div>';
+      html += '</div>';
+
+      html += '<div class="summary-card">';
+      html += '<div class="summary-card-label">Total Cost</div>';
+      html += '<div class="summary-card-value">' + formatCost(s.totalCost.total) + '</div>';
+      html += '<div class="summary-card-sub">cache: ' + formatCost(s.totalCost.cacheRead + s.totalCost.cacheWrite) + '</div>';
+      html += '</div>';
+
+      html += '<div class="summary-card">';
+      html += '<div class="summary-card-label">Messages</div>';
+      html += '<div class="summary-card-value">' + s.totalMessages + '</div>';
+      html += '<div class="summary-card-sub">' + s.assistantMessages + ' assistant · ' + s.userMessages + ' user</div>';
+      html += '</div>';
+
+      html += '<div class="summary-card">';
+      html += '<div class="summary-card-label">Models Used</div>';
+      html += '<div class="summary-card-value">' + s.models.length + '</div>';
+      html += '<div class="summary-card-sub">' + s.models.map(m => m.model.split('.').pop()).join(', ') + '</div>';
+      html += '</div>';
+
+      html += '<div class="summary-card">';
+      html += '<div class="summary-card-label">Tools Used</div>';
+      html += '<div class="summary-card-value">' + s.tools.length + '</div>';
+      html += '<div class="summary-card-sub">' + s.tools.map(t => t.name).slice(0, 4).join(', ') + (s.tools.length > 4 ? '...' : '') + '</div>';
+      html += '</div>';
+
+      if (Object.keys(s.stopReasons).length > 0) {
+        html += '<div class="summary-card">';
+        html += '<div class="summary-card-label">Stop Reasons</div>';
+        html += '<div class="summary-card-value" style="font-size: 14px;">' + Object.entries(s.stopReasons).map(([k, v]) => k + ': ' + v).join(', ') + '</div>';
+        html += '</div>';
+      }
+
+      html += '</div>';
+      return html;
+    }
+
+    function renderSessionModels() {
+      const s = sessionData;
+      if (s.models.length === 0) return '<div class="loading">No model data available</div>';
+
+      let html = '<table class="model-table">';
+      html += '<thead><tr><th>Model</th><th>Provider</th><th>Messages</th><th>Tokens</th><th>Cost</th></tr></thead>';
+      html += '<tbody>';
+
+      for (const m of s.models) {
+        html += '<tr>';
+        html += '<td>' + esc(m.model) + '</td>';
+        html += '<td>' + esc(m.provider) + '</td>';
+        html += '<td>' + m.messageCount + '</td>';
+        html += '<td>' + formatTokens(m.tokens.total) + '</td>';
+        html += '<td>' + formatCost(m.cost.total) + '</td>';
+        html += '</tr>';
+      }
+
+      html += '</tbody></table>';
+      return html;
+    }
+
+    function renderSessionTools() {
+      const s = sessionData;
+      if (s.tools.length === 0) return '<div class="loading">No tool data available</div>';
+
+      let html = '<table class="tool-table">';
+      html += '<thead><tr><th>Tool</th><th>Count</th><th>Last Used</th></tr></thead>';
+      html += '<tbody>';
+
+      for (const t of s.tools) {
+        html += '<tr>';
+        html += '<td>' + esc(t.name) + '</td>';
+        html += '<td>' + t.count + '</td>';
+        html += '<td>' + (t.lastUsed ? new Date(t.lastUsed).toLocaleTimeString() : '-') + '</td>';
+        html += '</tr>';
+      }
+
+      html += '</tbody></table>';
+      return html;
+    }
+
+    function renderSessionMessages() {
+      const s = sessionData;
+      if (s.messages.length === 0) return '<div class="loading">No messages available</div>';
+
+      let html = '<div class="message-list">';
+
+      for (const msg of s.messages) {
+        html += '<div class="message-item">';
+        html += '<div class="message-role ' + msg.role + '">' + esc(msg.role) + '</div>';
+        if (msg.toolCalls && msg.toolCalls.length > 0) {
+          html += '<div style="color: var(--warn); font-size: 11px; margin-bottom: 4px;">Tool calls: ' + msg.toolCalls.map(t => t.name).join(', ') + '</div>';
+        }
+        if (msg.content) {
+          html += '<div class="message-content">' + esc(msg.content) + '</div>';
+        }
+        html += '<div class="message-meta">';
+        if (msg.timestamp) html += '<span>' + new Date(msg.timestamp).toLocaleTimeString() + '</span>';
+        if (msg.model) html += '<span>' + esc(msg.model.split('.').pop() || msg.model) + '</span>';
+        if (msg.tokens) html += '<span>' + formatTokens(msg.tokens.total) + '</span>';
+        if (msg.stopReason) html += '<span>stop: ' + esc(msg.stopReason) + '</span>';
+        html += '</div>';
+        html += '</div>';
+      }
+
       html += '</div>';
       return html;
     }
@@ -517,6 +951,22 @@
       return groups;
     }
 
+    function attachNodeClickHandlers() {
+      document.querySelectorAll('.tree-node-header').forEach(header => {
+        header.addEventListener('click', () => {
+          const idx = header.dataset.stepIndex;
+          const details = document.getElementById('node-details-' + idx);
+          if (details) {
+            details.classList.toggle('expanded');
+            const expandLabel = header.querySelector('.node-expand');
+            if (expandLabel) {
+              expandLabel.textContent = details.classList.contains('expanded') ? 'click to collapse' : 'click to expand';
+            }
+          }
+        });
+      });
+    }
+
     function renderResult(result) {
       const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
       return '<div class="run-result">'
@@ -545,6 +995,18 @@
       if (secs < 60) return secs.toFixed(0) + 's';
       if (secs < 3600) return (secs / 60).toFixed(1) + 'm';
       return (secs / 3600).toFixed(1) + 'h';
+    }
+
+    function formatTokens(count) {
+      if (count >= 1_000_000) return (count / 1_000_000).toFixed(1) + 'M';
+      if (count >= 1_000) return (count / 1_000).toFixed(1) + 'k';
+      return count.toString();
+    }
+
+    function formatCost(usd) {
+      if (usd >= 1) return '$' + usd.toFixed(2);
+      if (usd >= 0.01) return '$' + usd.toFixed(3);
+      return (usd * 100).toFixed(2) + '¢';
     }
 
     function relativeTime(ts) {

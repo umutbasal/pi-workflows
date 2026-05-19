@@ -55,6 +55,10 @@ export interface WorkflowStep {
   compactionCount?: number;
   activity?: string;
   modelName?: string;
+  modelId?: string;
+  provider?: string;
+  cost?: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+  sessionId?: string;
 }
 
 export interface WorkflowRun {
